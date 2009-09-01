@@ -27,7 +27,7 @@ Public Class MpqFileTable
             stream.Seek(archive.fileTablePosition, IO.SeekOrigin.Begin)
             Using br = New IO.BinaryReader( _
                         New IO.BufferedStream( _
-                         New MpqCypherer(HashString("(block table)", HashType.FILE_KEY), MpqCypherer.modes.decrypt).ConvertReadOnlyStream(stream)))
+                         New MpqStreamDecrypter(HashFilenameUsing("(block table)", CryptTableIndex.CypherKeyHash)).ConvertReadOnlyStream(stream)))
                 For i = 0 To CInt(archive.numFileTableEntries) - 1
                     Dim f = New FileEntry()
                     f.filePosition = br.ReadUInt32()
@@ -41,7 +41,7 @@ Public Class MpqFileTable
 
         'Correct positions from relative to absolute
         For Each entry In fileEntries
-            entry.filePosition += archive.filePosition
+            entry.filePosition += archive.archivePosition
         Next entry
     End Sub
 End Class

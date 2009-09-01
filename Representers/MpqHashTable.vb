@@ -36,7 +36,7 @@ Public Class MpqHashTable
             stream.Seek(archive.hashTablePosition, IO.SeekOrigin.Begin)
             Using br = New IO.BinaryReader(
                         New IO.BufferedStream(
-                         New MpqCypherer(HashString("(hash table)", HashType.FILE_KEY), MpqCypherer.modes.decrypt).ConvertReadOnlyStream(stream)))
+                         New MpqStreamDecrypter(HashFilenameUsing("(hash table)", CryptTableIndex.CypherKeyHash)).ConvertReadOnlyStream(stream)))
 
                 'Read values
                 For repeat = 1UI To archive.numHashTableEntries
@@ -50,18 +50,24 @@ Public Class MpqHashTable
         End Using
     End Sub
 
-    Private Function getHash(ByVal filename As String) As HashEntry
-        Dim key = HashFileName(filename)
-        Dim start = CInt(CUInt(HashString(filename, HashType.HASH_TABLE_OFFSET)) Mod hashes.Count)
+    ''' <summary>
+    ''' Returns the hash entry containing the file.
+    ''' If there is no such entry, returns the entry the file should be placed in.
+    ''' </summary>
+    Private Function FindFileSlot(ByVal filename As String) As HashEntry
+        Contract.Requires(filename IsNot Nothing)
+
+        Dim nameKey = Common.HashFileName(filename)
+        Dim offset = CInt(CUInt(HashFilenameUsing(filename, CryptTableIndex.PositionHash)) Mod CUInt(hashes.Count))
         Dim firstEmptyEntry As HashEntry = Nothing
-        For offset = 0 To hashes.Count - 1
-            Dim curEntry = hashes((offset + start) Mod hashes.Count)
+        For i = 0 To hashes.Count - 1
+            Dim curEntry = hashes((i + offset) Mod hashes.Count)
             If Not curEntry.Exists Then
                 If firstEmptyEntry Is Nothing Then firstEmptyEntry = curEntry
                 If curEntry.fileIndex = DecoratoratedFileIndex.NoFile Then Exit For
                 If curEntry.fileIndex = DecoratoratedFileIndex.DeletedFile Then Continue For
             End If
-            If curEntry.key = key Then
+            If curEntry.key = nameKey Then
                 'removed; replaced by language id validation? uncomment later if problems re-emerge
                 'If hashes((offset + start + 1) Mod hashes.Count).key = key Then
                 'This mpq is protected, the first file is a fake to cause WE to crash, but wc3 skips it
@@ -69,13 +75,13 @@ Public Class MpqHashTable
                 'End If
 
                 If curEntry.Exists Then
-                    If curEntry.fileIndex >= archive.numFileTableEntries Then
+                    If curEntry.fileIndex >= archive.fileTable.fileEntries.Count Then
                         Throw New MPQException("Invalid MPQ hash table entry accessed. The entry's file index points outside the file table.")
                     End If
                     Return curEntry
                 End If
             End If
-        Next offset
+        Next i
         Return firstEmptyEntry
     End Function
 
@@ -84,17 +90,21 @@ Public Class MpqHashTable
     '''Throws an exception if there is no hash for the filename
     '''</summary>
     Public Function hash(ByVal filename As String) As HashEntry
+        Contract.Requires(filename IsNot Nothing)
         If Not contains(filename) Then Throw New IO.IOException("Filekey not in Hash Table")
-        Return getHash(filename)
+        Return FindFileSlot(filename)
     End Function
 
+    <Pure()>
     Public Function contains(ByVal filename As String) As Boolean
-        Dim h = getHash(filename)
+        Contract.Requires(filename IsNot Nothing)
+        Dim h = FindFileSlot(filename)
         Return h IsNot Nothing AndAlso h.Exists
     End Function
 
     Public Function getEmpty(ByVal filename As String) As HashEntry
+        Contract.Requires(filename IsNot Nothing)
         If contains(filename) Then Throw New IO.IOException("Filekey already in Hash Table")
-        Return getHash(filename)
+        Return FindFileSlot(filename)
     End Function
 End Class

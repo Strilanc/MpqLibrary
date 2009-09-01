@@ -54,7 +54,7 @@ Public Class MpqFileStream
 
     '''<summary>Creates a stream for the file with the given index, and uses the given name for decryption.</summary>
     '''<remarks>Can still compute the decryption key if the blockOffsetTable is stored in the file.</remarks>
-    Public Sub New(ByVal archive As MpqArchive,
+    Friend Sub New(ByVal archive As MpqArchive,
                    ByVal fileTableEntry As MpqFileTable.FileEntry,
                    Optional ByVal knownFilename As String = Nothing)
         Contract.Requires(archive IsNot Nothing)
@@ -69,9 +69,9 @@ Public Class MpqFileStream
         'Sanity check
         If (fileTableEntry.flags And FileFlags.Exists) = 0 Then
             Throw New IO.IOException("File ID is in File Table, but is flagged as does not exist.")
-        ElseIf fileTableEntry.filePosition > archive.archiveSize + archive.filePosition Then
+        ElseIf fileTableEntry.filePosition > archive.archiveSize + archive.archivePosition Then
             Throw New IO.IOException("File starts past the end of the MPQ Archive")
-        ElseIf fileTableEntry.filePosition + fileTableEntry.compressedSize > archive.archiveSize + archive.filePosition Then
+        ElseIf fileTableEntry.filePosition + fileTableEntry.compressedSize > archive.archiveSize + archive.archivePosition Then
             '[File seems to end past end of mpq archive, but it may have a negative offset table]
             If (fileTableEntry.flags And FileFlags.Continuous) <> 0 Or (fileTableEntry.flags And (FileFlags.Compressed Or FileFlags.Encrypted)) = 0 Then
                 '[No offset table]
@@ -116,7 +116,7 @@ Public Class MpqFileStream
                         decryptionKey += 1 'the key for a block is offset by the block number (offset table is considered block -1)
                     End If
                     'wrap
-                    blockStream = New MpqCypherer(decryptionKey - 1, MpqCypherer.modes.decrypt).ConvertReadOnlyStream(blockStream)
+                    blockStream = New MpqStreamDecrypter(decryptionKey - 1).ConvertReadOnlyStream(blockStream)
                 End If
 
                 'Read
@@ -155,7 +155,7 @@ Public Class MpqFileStream
         'Decryption layer
         If (fileTableEntry.flags And FileFlags.Encrypted) <> 0 Then
             If Not canDecrypt Then Throw New IO.IOException("Couldn't decrypt MPQ block data.")
-            blockStream = New Mpq.Crypt.MpqCypherer(decryptionKey + blockIndex, MpqCypherer.modes.decrypt).ConvertReadOnlyStream(blockStream)
+            blockStream = New MpqStreamDecrypter(decryptionKey + blockIndex).ConvertReadOnlyStream(blockStream)
         End If
 
         'Decompression layer
@@ -301,6 +301,7 @@ Public Class MpqFileStream
     End Sub
     Public Overrides Sub Close()
         If blockStream IsNot Nothing Then blockStream.Close()
+        baseStream.Close()
         MyBase.Close()
     End Sub
 #End Region

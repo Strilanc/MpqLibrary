@@ -25,17 +25,17 @@
 ''''</copyright>
 Namespace Crypt
     Public Module Common
-        Public Enum HashType As Integer
-            HASH_TABLE_OFFSET = 0
-            NAME_A = 1
-            NAME_B = 2
-            FILE_KEY = 3
-            ENCRYPT = 4
+        Friend Enum CryptTableIndex As Integer
+            PositionHash = 0
+            NameHashLow = 1
+            NameHashHigh = 2
+            CypherKeyHash = 3
+            CypherTable = 4
         End Enum
-        Friend ReadOnly cryptTable As Dictionary(Of HashType, ModInt32()) = computeCryptTable()
+        Friend ReadOnly cryptTable As Dictionary(Of CryptTableIndex, ModInt32()) = ComputeCryptTable()
 
         '''<summary>Creates the encryption table used for MPQ data</summary>
-        Private Function computeCryptTable() As Dictionary(Of HashType, ModInt32())
+        Private Function ComputeCryptTable() As Dictionary(Of CryptTableIndex, ModInt32())
             Const TableSize As Integer = 256 * 5
             Dim table(0 To TableSize - 1) As ModInt32
             Dim k As ModInt32 = &H100001
@@ -52,38 +52,34 @@ Namespace Crypt
                 If pos > TableSize - 1 Then pos -= TableSize - 1
             End While
 
-            Dim d = New Dictionary(Of HashType, ModInt32())
-            For Each h In EnumValues(Of HashType)()
+            Dim d = New Dictionary(Of CryptTableIndex, ModInt32())
+            For Each h In EnumValues(Of CryptTableIndex)()
                 d(h) = table.SubArray(CInt(h) * 256, 256)
             Next h
             Return d
         End Function
 
         '''<summary>Hashes a string into a key</summary>
-        Public Function HashString(ByVal s As String, ByVal hashType As HashType) As ModInt32
+        <Pure()>
+        Friend Function HashFilenameUsing(ByVal filename As String, ByVal hashType As CryptTableIndex) As ModInt32
             Dim k1 As ModInt32 = &H7FED7FED
             Dim k2 As ModInt32 = &HEEEEEEEE
             Dim T = cryptTable(hashType)
-            For Each b In (From c In s.ToUpper() Select CByte(Asc(c)))
+            For Each b In (From c In filename.ToUpper() Select CByte(Asc(c)))
                 k1 = (k1 + k2) Xor T(b)
                 k2 = b + k1 + k2 * 33 + 3
             Next b
             Return k1
         End Function
 
-        '''<summary>Computes the hash of a file name</summary>
-        '''<remarks>Used to determine where a file is stored in the hash table</remarks>
-        Public Function HashFileName(ByVal s As String) As UInt64
-            Return CULng(HashString(s, HashType.NAME_A)) Or CULng(HashString(s, HashType.NAME_B)) << 32
-        End Function
-
         '''<summary>Computes the decryption key of a file with known filename</summary>
-        Public Function GetFileDecryptionKey(ByVal fileName As String, ByVal fileTableEntry As MpqFileTable.FileEntry, ByVal mpqa As MpqArchive) As ModInt32
-            Dim key = HashString(Mpq.Common.GetFileNameSlash(fileName), HashType.FILE_KEY) 'key from hashed file name [without folders]
+        <Pure()>
+        Friend Function GetFileDecryptionKey(ByVal fileName As String, ByVal fileTableEntry As MpqFileTable.FileEntry, ByVal mpqa As MpqArchive) As ModInt32
+            Dim key = HashFilenameUsing(Mpq.Common.GetFileNameSlash(fileName), CryptTableIndex.CypherKeyHash) 'key from hashed file name [without folders]
 
             'adjusted keys are offset by the file position
             If (fileTableEntry.flags And FileFlags.AdjustedKey) <> 0 Then
-                key = fileTableEntry.actualSize Xor key + fileTableEntry.filePosition - mpqa.filePosition
+                key = fileTableEntry.actualSize Xor key + fileTableEntry.filePosition - mpqa.archivePosition
             End If
 
             Return key
@@ -106,9 +102,9 @@ Namespace Crypt
         '''   Notice the right side has only 256 possible values because seed1 is AND-ed with 0xFF
         '''   Brute force seed1 by trying every possible value of (seed1 and 0xHFF) in the right side
         '''</remarks>
-        Public Function BreakFileDecryptionKey(ByVal encryptedStream As IO.Stream, ByVal target1Value As UInt32) As ModInt32
+        Friend Function BreakFileDecryptionKey(ByVal encryptedStream As IO.Stream, ByVal target1Value As UInt32) As ModInt32
             'Prep
-            Dim T = cryptTable(HashType.ENCRYPT)
+            Dim T = cryptTable(CryptTableIndex.CypherTable)
             Dim e1 As ModInt32, e2 As ModInt32
             With New IO.BinaryReader(encryptedStream)
                 e1 = .ReadUInt32()
@@ -133,7 +129,7 @@ Namespace Crypt
                 If (k1 And &HFF) <> possible_byte Then Continue For 'doesn't satisfy basic constraint
 
                 m.Seek(0, IO.SeekOrigin.Begin)
-                With New IO.BinaryReader(New MpqCypherer(k1, MpqCypherer.modes.decrypt).ConvertReadOnlyStream(m))
+                With New IO.BinaryReader(New MpqStreamDecrypter(k1).ConvertReadOnlyStream(m))
                     'check decryption for correctness
                     If .ReadUInt32() <> target1Value Then Continue For 'doesn't match plaintext
                     'keep track of key with lowest second value [lower values are more likely plaintexts]
