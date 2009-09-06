@@ -23,7 +23,7 @@
 
     '''<summary>Outlines the algorithm for encryption and decryption of data in MPQ files.</summary>
     Friend MustInherit Class AbstractMpqStreamCypher
-        Implements IConverter(Of Byte)
+        Implements IConverter(Of Byte, Byte)
         Private ReadOnly initialKey1 As ModInt32
         Private Shared ReadOnly initialKey2 As ModInt32 = &HEEEEEEEE
 
@@ -33,7 +33,7 @@
 
         Protected MustOverride Function SelectPlainValue(ByVal inputValue As ModInt32, ByVal outputValue As ModInt32) As ModInt32
 
-        Public Function Convert(ByVal sequence As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte).Convert
+        Public Function Convert(ByVal sequence As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte, Byte).Convert
             Dim k1 = initialKey1
             Dim k2 = initialKey2
             Dim T = cryptTable(CryptTableIndex.CypherTable)

@@ -1,6 +1,6 @@
 Namespace Compression
     Public Class MpqWaveDecoder
-        Implements IConverter(Of Byte)
+        Implements IConverter(Of Byte, Byte)
 
         Private ReadOnly numChannels As Integer
 
@@ -9,7 +9,7 @@ Namespace Compression
             Me.numChannels = numChannels
         End Sub
 
-        Public Function Convert(ByVal sequence As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte).Convert
+        Public Function Convert(ByVal sequence As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte, Byte).Convert
             Dim outBitBuffer = New BitBuffer()
             Dim stepIndex(0 To numChannels - 1) As Integer
             Dim prediction(0 To numChannels - 1) As Integer
@@ -27,7 +27,7 @@ Namespace Compression
                 Function(controller)
                     Do
                         'write processed values
-                        If outBitBuffer.NumBufferedBits >= 8 Then  Return outBitBuffer.TakeByte()
+                        If outBitBuffer.BufferedBitCount >= 8 Then  Return outBitBuffer.TakeByte()
 
                         'read next value
                         If Not sequence.MoveNext() Then  Return controller.Break()

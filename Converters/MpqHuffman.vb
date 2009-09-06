@@ -1,6 +1,6 @@
 Namespace Compression
     Public Class MpqHuffmanEncoder
-        Implements IConverter(Of Byte)
+        Implements IConverter(Of Byte, Byte)
         Private ReadOnly treeIndex As Byte
 
         Public Sub New(ByVal treeIndex As Byte)
@@ -8,7 +8,7 @@ Namespace Compression
             Me.treeIndex = treeIndex
         End Sub
 
-        Public Function Convert(ByVal sequence As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte).Convert
+        Public Function Convert(ByVal sequence As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte, Byte).Convert
             Dim doneReading = False
             Dim tree As HuffmanTree = Nothing
             Dim outBuf = New BitBuffer()
@@ -22,7 +22,7 @@ Namespace Compression
 
                     Do
                         'Empty encoded bit buffer into write buffer
-                        If outBuf.NumBufferedBits >= 8 Then  Return outBuf.TakeByte()
+                        If outBuf.BufferedBitCount >= 8 Then  Return outBuf.TakeByte()
                         If doneReading Then  Return controller.Break()
 
                         'Read next byte to encode
@@ -46,14 +46,14 @@ Namespace Compression
                             pathBuf.StackBit(n Is n.parent.rightChild)
                             n = n.parent
                         End While
-                        While pathBuf.NumBufferedBits > 0
+                        While pathBuf.BufferedBitCount > 0
                             outBuf.QueueBit(pathBuf.TakeBit())
                         End While
 
                         'Update the tree and finish the encoded byte
                         Select Case v
                             Case &H100
-                                If outBuf.NumBufferedBits Mod 8 <> 0 Then
+                                If outBuf.BufferedBitCount Mod 8 <> 0 Then
                                     'pad last byte with 0s
                                     outBuf.QueueByte(0)
                                 End If
@@ -71,8 +71,8 @@ Namespace Compression
     End Class
 
     Public Class MpqHuffmanDecoder
-        Implements IConverter(Of Byte)
-        Public Function Convert(ByVal sequence As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte).Convert
+        Implements IConverter(Of Byte, Byte)
+        Public Function Convert(ByVal sequence As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte, Byte).Convert
             Dim treeIndex = sequence.MoveNextAndReturn()
             If treeIndex >= frequencyTables.Length Then Throw New IO.IOException("Invalid huffman tree index.")
             Dim tree = New HuffmanTree(frequencyTables(treeIndex))
@@ -83,7 +83,7 @@ Namespace Compression
                     Dim buf = New BitBuffer()
                     Dim curNode = tree.nodes(0)  'root
                     Do While curNode.value = -1
-                        If buf.NumBufferedBits <= 0 Then  buf.QueueByte(sequence.MoveNextAndReturn())
+                        If buf.BufferedBitCount <= 0 Then  buf.QueueByte(sequence.MoveNextAndReturn())
                         curNode = If(buf.TakeBit(), curNode.rightChild, curNode.leftChild)
                     Loop
 

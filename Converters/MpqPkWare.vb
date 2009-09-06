@@ -36,7 +36,7 @@
 
 Namespace Compression
     Public Class MpqPkWareDecoder
-        Implements IConverter(Of Byte)
+        Implements IConverter(Of Byte, Byte)
         Public Enum modes As Byte
             binary = 0
             ascii = 1
@@ -58,7 +58,7 @@ Namespace Compression
             End Get
         End Property
 
-        Public Function Convert(ByVal seq As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte).Convert
+        Public Function Convert(ByVal seq As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte, Byte).Convert
             Dim seqBuf = New ByteSequenceBitBuffer(seq)
             If Not seqBuf.TryBufferBits(16) Then Throw New IO.InvalidDataException("Invalid PkWare Stream (too short to even include header).")
 
