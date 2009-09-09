@@ -105,7 +105,7 @@ Namespace Compression
                                     outBuf(writePos) = ReadTreeNodeFrom(AsciiTree, seqBuf)
                                     writePos = CyclePosition(writePos + 1)
                                 Case Else
-                                    Throw mode.ValueShouldBeImpossibleException()
+                                    Throw mode.MakeImpossibleValueException()
                             End Select
                         Else '[Look-back run encoding]
                             'copy length

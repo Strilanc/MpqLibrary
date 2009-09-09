@@ -145,7 +145,9 @@ Public Class MpqArchive
         Contract.Requires(fileIndex >= 0)
         Contract.Ensures(Contract.Result(Of IO.Stream)() IsNot Nothing)
         If fileIndex >= fileTable.fileEntries.Count Then Throw New IO.IOException("File ID not in file table")
-        Return New MpqFileStream(Me, fileTable.fileEntries(CInt(fileIndex)))
+        Dim entry = fileTable.fileEntries(CInt(fileIndex))
+        Contract.Assume(entry IsNot Nothing)
+        Return New MpqFileStream(Me, entry)
     End Function
     <Pure()>
     Public Function OpenFile(ByVal filename As String) As IO.Stream

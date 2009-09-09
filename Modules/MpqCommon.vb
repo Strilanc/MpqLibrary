@@ -14,7 +14,9 @@ Namespace Common
             Contract.Requires(path IsNot Nothing)
             Contract.Ensures(Contract.Result(Of String)() IsNot Nothing)
             Dim words = path.Split("\"c, "/"c)
-            Return words(words.Length - 1)
+            Dim word = words(words.Length - 1)
+            Contract.Assume(word IsNot Nothing)
+            Return word
         End Function
 
         Public Sub WriteToFile(ByVal archive As MpqArchive, ByVal targetPath As String, ByVal ParamArray commands() As String)
@@ -226,7 +228,8 @@ Namespace Common
             Try
                 With New IO.StreamReader(s)
                     While Not .EndOfStream
-                        Dim path As String = .ReadLine()
+                        Dim path = .ReadLine()
+                        Contract.Assume(path IsNot Nothing)
                         map(HashFileName(path)) = path
                     End While
                 End With
@@ -285,6 +288,7 @@ Namespace Common
                     'Open file
                     If map.ContainsKey(h.key) Then
                         filename = map(h.key)
+                        Contract.Assume(filename IsNot Nothing)
                         m = archive.OpenFile(filename)
                     Else
                         filename = "Unknown" + CStr(h.key)

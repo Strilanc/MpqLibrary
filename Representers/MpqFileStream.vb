@@ -245,6 +245,7 @@ Public Class MpqFileStream
     Public Overrides Function Seek(ByVal offset As Long, ByVal origin As System.IO.SeekOrigin) As Long
         If origin = IO.SeekOrigin.Current Then offset += Position
         If origin = IO.SeekOrigin.End Then offset += Length
+        Contract.Assume(offset > 0)
         Position = offset
     End Function
 

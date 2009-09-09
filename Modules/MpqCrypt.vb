@@ -75,6 +75,7 @@ Namespace Crypt
         '''<summary>Computes the decryption key of a file with known filename</summary>
         <Pure()>
         Friend Function GetFileDecryptionKey(ByVal fileName As String, ByVal fileTableEntry As MpqFileTable.FileEntry, ByVal mpqa As MpqArchive) As ModInt32
+            Contract.Requires(fileName IsNot Nothing)
             Dim key = HashFilenameUsing(Mpq.Common.GetFileNameSlash(fileName), CryptTableIndex.CypherKeyHash) 'key from hashed file name [without folders]
 
             'adjusted keys are offset by the file position

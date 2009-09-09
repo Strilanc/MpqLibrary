@@ -272,6 +272,8 @@ Namespace Compression
                     End While
                     i += 1
                     'if the node has to change positions, we need to update the tree and the list
+                    Contract.Assume(i >= 0)
+                    Contract.Assume(i < nodes.Count)
                     Dim m = nodes(i)
                     If m IsNot n Then
                         'switch places in list
