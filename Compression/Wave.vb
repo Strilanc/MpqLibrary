@@ -1,11 +1,11 @@
 Namespace Compression
-    Public Class MpqWaveDecoder
+    Friend Class WaveDecompressor
         Implements IConverter(Of Byte, Byte)
 
         Private ReadOnly numChannels As Integer
 
         Public Sub New(ByVal numChannels As Integer)
-            If numChannels < 1 Or numChannels > 2 Then Throw New ArgumentOutOfRangeException("numChannels must be 1 or 2", "numChannels")
+            Contract.Requires(numChannels = 1 OrElse numChannels = 2)
             Me.numChannels = numChannels
         End Sub
 
@@ -80,7 +80,7 @@ Namespace Compression
         End Function
     End Class
 
-    Friend Module Common 'ADPCM
+    Friend Module WaveData 'ADPCM
         Friend ReadOnly stepIndexDeltaTable() As Integer = {
             -1, 0, -1, 4, -1, 2, -1, 6,
             -1, 1, -1, 5, -1, 3, -1, 7,

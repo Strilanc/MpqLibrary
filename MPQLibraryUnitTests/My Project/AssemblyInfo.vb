@@ -8,17 +8,19 @@ Imports System.Runtime.InteropServices
 
 ' Review the values of the assembly attributes
 
-<Assembly: AssemblyTitle("MpqLibrary")> 
+<Assembly: AssemblyTitle("MPQLibraryUnitTests")> 
 <Assembly: AssemblyDescription("")> 
 <Assembly: AssemblyCompany("Microsoft")> 
-<Assembly: AssemblyProduct("MpqLibrary")> 
+<Assembly: AssemblyProduct("MPQLibraryUnitTests")> 
 <Assembly: AssemblyCopyright("Copyright © Microsoft 2009")> 
 <Assembly: AssemblyTrademark("")> 
+
+<Assembly: CLSCompliant(True)> 
 
 <Assembly: ComVisible(False)>
 
 'The following GUID is for the ID of the typelib if this project is exposed to COM
-<Assembly: Guid("e5c106c3-793a-4dc5-8445-2ecb7b9e1777")> 
+<Assembly: Guid("bcb02936-9819-4408-8783-c95ba4a3bd13")> 
 
 ' Version information for an assembly consists of the following four values:
 '
@@ -33,4 +35,3 @@ Imports System.Runtime.InteropServices
 
 <Assembly: AssemblyVersion("1.0.0.0")> 
 <Assembly: AssemblyFileVersion("1.0.0.0")> 
-<Assembly: CLSCompliant(False)> 

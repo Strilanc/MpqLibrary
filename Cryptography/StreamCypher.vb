@@ -1,6 +1,6 @@
-﻿Namespace Crypt
+﻿Namespace Cryptography
     '''<summary>Decrypts encrypted data in an MPQ file.</summary>
-    Friend Class MpqStreamEncrypter
+    Friend Class StreamEncrypter
         Inherits AbstractMpqStreamCypher
         Public Sub New(ByVal key As ModInt32)
             MyBase.new(key)
@@ -11,7 +11,7 @@
     End Class
 
     '''<summary>Encrypts data for placement in an MPQ file.</summary>
-    Friend Class MpqStreamDecrypter
+    Friend Class StreamDecrypter
         Inherits AbstractMpqStreamCypher
         Public Sub New(ByVal key As ModInt32)
             MyBase.new(key)
@@ -39,6 +39,9 @@
             Dim T = cryptTable(CryptTableIndex.CypherTable)
             Return New Enumerator(Of Byte)(
                 Function(controller)
+                    Contract.Requires(controller IsNot Nothing)
+                    Contract.Assume(controller IsNot Nothing)
+
                     'Get next dword to cypher (with no cyphering on remainder bytes)
                     If Not sequence.MoveNext Then  Return controller.Break()
                     Dim data As New List(Of Byte)(4)

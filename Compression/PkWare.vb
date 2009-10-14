@@ -35,7 +35,7 @@
 ''''======================================================
 
 Namespace Compression
-    Public Class MpqPkWareDecoder
+    Friend Class PkWareDecompressor
         Implements IConverter(Of Byte, Byte)
         Public Enum modes As Byte
             binary = 0
@@ -44,7 +44,7 @@ Namespace Compression
         Private Const BUFFER_SIZE As Integer = 4096
 
         '''<summary>Travels down to the leaf of a coding tree, unbuffering bits for direction.</summary>
-        Private Function ReadTreeNodeFrom(ByVal c As CodeTree, ByVal readBuf As ByteSequenceBitBuffer) As Byte
+        Private Function ReadTreeNodeFrom(ByVal c As PkWareCodeTree, ByVal readBuf As ByteSequenceBitBuffer) As Byte
             Dim n = c.root
             While Not n.isLeaf
                 n = If(readBuf.TakeBit, n.leftChild, n.rightChild)
@@ -63,7 +63,7 @@ Namespace Compression
             If Not seqBuf.TryBufferBits(16) Then Throw New IO.InvalidDataException("Invalid PkWare Stream (too short to even include header).")
 
             'Mode
-            Dim mode = CType(seqBuf.TakeByte(), MpqPkWareDecoder.modes)
+            Dim mode = CType(seqBuf.TakeByte(), PkWareDecompressor.modes)
             Select Case mode
                 Case modes.binary, modes.ascii
                 Case Else
@@ -133,9 +133,67 @@ Namespace Compression
         End Function
     End Class
 
+    '''<summary>Maps sequences of bits to characters.</summary>
+    Friend Class PkWareCodeTree
+        Public ReadOnly root As New CodeNode()
+
+        Public Class CodeNode
+            Public leftChild As CodeNode
+            Public rightChild As CodeNode
+            Public value As Integer
+            Public isLeaf As Boolean
+        End Class
+
+        '''<summary>Generates a code-tree with each character code(i) at level lengths(i)</summary>
+        Public Sub New(ByVal codes() As UShort, ByVal lengths() As Byte)
+            If codes Is Nothing Then Throw New ArgumentNullException("codes")
+            If lengths Is Nothing Then Throw New ArgumentNullException("lengths")
+            If codes.Length <> lengths.Length Then Throw New ArgumentException("Must have the same number of codes and lengths.")
+            Dim numLeaves = 0
+            Dim numNodes = 1
+
+            For i = 0 To codes.Length - 1
+                Dim n = root
+                Dim c = codes(i)
+                For repeat = 0 To lengths(i) - 1
+                    'Mark current node as an internal node
+                    If n.isLeaf Then
+                        Throw New ArgumentException("The path for {0} passes through the leaf for {1}.".Frmt(n.value, i))
+                    End If
+                    If n.leftChild Is Nothing Then
+                        n.leftChild = New CodeNode()
+                        numNodes += 1
+                    End If
+                    If n.rightChild Is Nothing Then
+                        n.rightChild = New CodeNode()
+                        numNodes += 1
+                    End If
+
+                    'Travel to next child
+                    n = If((c And 1) <> 0, n.leftChild, n.rightChild)
+                    c >>= 1
+                Next repeat
+
+                'Assign value to the selected leaf
+                If n.isLeaf Then
+                    Throw New ArgumentException("The code for {0} and {1} are the same.".Frmt(i, n.value))
+                ElseIf n.leftChild IsNot Nothing OrElse n.rightChild IsNot Nothing Then
+                    Throw New ArgumentException("The code for {0} terminates on an internal node.".Frmt(i))
+                End If
+                n.value = i
+                n.isLeaf = True
+                numLeaves += 1
+            Next i
+
+            'Check that all leaves are coded
+            If numLeaves * 2 <> numNodes + 1 Then
+                Throw New ArgumentException("There are non-terminated paths in the code tree. It is non-optimal.")
+            End If
+        End Sub
+    End Class
+
     Friend Module PkWareData
-#Region "Data"
-        Public ReadOnly JumpLengthTree As New CodeTree(
+        Public ReadOnly JumpLengthTree As New PkWareCodeTree(
                 {
                         &H3, &HD, &H5, &H19, &H9, &H11, &H1, &H3E, &H1E, &H2E, &HE, &H36, &H16, &H26, &H6, &H3A,
                         &H1A, &H2A, &HA, &H32, &H12, &H22, &H42, &H2, &H7C, &H3C, &H5C, &H1C, &H6C, &H2C, &H4C, &HC,
@@ -146,11 +204,11 @@ Namespace Compression
                          7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
                 })
 
-        Public ReadOnly CopyLengthTree As New CodeTree(
+        Public ReadOnly CopyLengthTree As New PkWareCodeTree(
                     {5, 3, 1, 6, 10, 2, 12, 20, 4, 24, 8, 48, 16, 32, 64, 0},
                     {3, 2, 3, 3, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 7, 7})
         Public ReadOnly CopyLengthTable() As UShort = {0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 14, 22, 38, 70, 134, 262}
-        Public ReadOnly AsciiTree As New CodeTree(
+        Public ReadOnly AsciiTree As New PkWareCodeTree(
                  {
                     &H490, &HFE0, &H7E0, &HBE0, &H3E0, &HDE0, &H5E0, &H9E0, &H1E0, &HB8, &H62, &HEE0, &H6E0, &H22, &HAE0, &H2E0,
                     &HCE0, &H4E0, &H8E0, &HE0, &HF60, &H760, &HB60, &H360, &HD60, &H560, &H1240, &H960, &H160, &HE60, &H660, &HA60,
@@ -186,65 +244,5 @@ Namespace Compression
                     &HD, &HC, &HD, &HD, &HD, &HC, &HD, &HD, &HD, &HC, &HD, &HD, &HD, &HD, &HC, &HD,
                     &HD, &HD, &HC, &HC, &HC, &HD, &HD, &HD, &HD, &HD, &HD, &HD, &HD, &HD, &HD, &HD
                 })
-#End Region
-
-        '''<summary>Maps sequences of bits to characters.</summary>
-        Public Class CodeTree
-            Public ReadOnly root As New CodeNode()
-
-            Public Class CodeNode
-                Public leftChild As CodeNode
-                Public rightChild As CodeNode
-                Public value As Integer
-                Public isLeaf As Boolean
-            End Class
-
-            '''<summary>Generates a code-tree with each character code(i) at level lengths(i)</summary>
-            Public Sub New(ByVal codes() As UShort, ByVal lengths() As Byte)
-                If codes Is Nothing Then Throw New ArgumentNullException("codes")
-                If lengths Is Nothing Then Throw New ArgumentNullException("lengths")
-                If codes.Length <> lengths.Length Then Throw New ArgumentException("Must have the same number of codes and lengths.")
-                Dim numLeaves = 0
-                Dim numNodes = 1
-
-                For i = 0 To codes.Length - 1
-                    Dim n = root
-                    Dim c = codes(i)
-                    For repeat = 0 To lengths(i) - 1
-                        'Mark current node as an internal node
-                        If n.isLeaf Then
-                            Throw New ArgumentException("The path for {0} passes through the leaf for {1}.".frmt(n.value, i))
-                        End If
-                        If n.leftChild Is Nothing Then
-                            n.leftChild = New CodeNode()
-                            numNodes += 1
-                        End If
-                        If n.rightChild Is Nothing Then
-                            n.rightChild = New CodeNode()
-                            numNodes += 1
-                        End If
-
-                        'Travel to next child
-                        n = If((c And 1) <> 0, n.leftChild, n.rightChild)
-                        c >>= 1
-                    Next repeat
-
-                    'Assign value to the selected leaf
-                    If n.isLeaf Then
-                        Throw New ArgumentException("The code for {0} and {1} are the same.".frmt(i, n.value))
-                    ElseIf n.leftChild IsNot Nothing OrElse n.rightChild IsNot Nothing Then
-                        Throw New ArgumentException("The code for {0} terminates on an internal node.".frmt(i))
-                    End If
-                    n.value = i
-                    n.isLeaf = True
-                    numLeaves += 1
-                Next i
-
-                'Check that all leaves are coded
-                If numLeaves * 2 <> numNodes + 1 Then
-                    Throw New ArgumentException("There are non-terminated paths in the code tree. It is non-optimal.")
-                End If
-            End Sub
-        End Class
     End Module
 End Namespace
