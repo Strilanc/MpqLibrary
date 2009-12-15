@@ -21,19 +21,28 @@
 
 Public Enum LanguageId As UInteger
     Neutral = 0
+
     Chinese = &H404
     Czech = &H405
+    Danish = &H406
     German = &H407
+    Greek = &H408
     English = &H409
     Spanish = &H40A
+    Finnish = &H40B
     French = &H40C
+    Hebrew = &H40D
+    Hungarian = &H40E
+
     Italian = &H410
     Japanese = &H411
     Korean = &H412
     Dutch = &H413
     Polish = &H415
     Portuguese = &H416
+
     Russian = &H419
+
     EnglishUK = &H809
 End Enum
 
@@ -48,12 +57,29 @@ Public Class Archive
 
     Friend ReadOnly Position As UInteger
     Friend ReadOnly Size As UInteger
-
-    Public ReadOnly Hashtable As Hashtable 'Map from hashes filesnames to file table indexes
-    Public ReadOnly BlockTable As BlockTable 'Stores the position, size, and other information about all files in the archive
-
+    Private ReadOnly _hashtable As Hashtable 'Map from hashes filesnames to file table indexes
+    Private ReadOnly _blockTable As BlockTable 'Stores the position, size, and other information about all files in the archive
     Friend ReadOnly streamFactory As Func(Of IO.Stream)
     Friend ReadOnly FileChunkSize As UInteger 'Size of the chunks files in the archive are divided into
+
+    <ContractInvariantMethod()> Private Sub ObjectInvariant()
+        Contract.Invariant(_hashtable IsNot Nothing)
+        Contract.Invariant(_blockTable IsNot Nothing)
+        Contract.Invariant(streamFactory IsNot Nothing)
+    End Sub
+
+    Public ReadOnly Property Hashtable As Hashtable
+        Get
+            Contract.Ensures(Contract.Result(Of Hashtable)() IsNot Nothing)
+            Return _hashtable
+        End Get
+    End Property
+    Public ReadOnly Property BlockTable As BlockTable
+        Get
+            Contract.Ensures(Contract.Result(Of BlockTable)() IsNot Nothing)
+            Return _blockTable
+        End Get
+    End Property
 
     Public Sub New(ByVal fileName As String)
         Contract.Requires(fileName IsNot Nothing)
@@ -103,8 +129,8 @@ Public Class Archive
             Me.FileChunkSize = 512UI << CInt(Me.FileChunkSize)
 
             'Load tables
-            BlockTable = New BlockTable(stream, Me.Position + blockTableOffset, blockTableSize)
-            Hashtable = New Hashtable(stream, Me.Position + hashtableOffset, hashtableSize, CUInt(BlockTable.Size))
+            Me._blockTable = New BlockTable(stream, Me.Position + blockTableOffset, blockTableSize)
+            Me._hashtable = New Hashtable(stream, Me.Position + hashtableOffset, hashtableSize, CUInt(BlockTable.Size))
         End Using
     End Sub
 

@@ -27,10 +27,10 @@ Namespace Compression
                 Function(controller)
                     Do
                         'write processed values
-                        If outBitBuffer.BufferedBitCount >= 8 Then  Return outBitBuffer.TakeByte()
+                        If outBitBuffer.BitCount >= 8 Then Return outBitBuffer.TakeByte()
 
                         'read next value
-                        If Not sequence.MoveNext() Then  Return controller.Break()
+                        If Not sequence.MoveNext() Then Return controller.Break()
                         Dim b = sequence.Current()
 
                         'process value
@@ -57,7 +57,7 @@ Namespace Compression
                             Dim stepSize = stepSizeTable(stepIndex(channel))
                             Dim deltaPrediction = stepSize >> stepShift
                             For i = 0 To 5 '[b is big endian]
-                                If (b >> i And 1) <> 0 Then  deltaPrediction += stepSize
+                                If (b >> i And 1) <> 0 Then deltaPrediction += stepSize
                                 stepSize >>= 1
                             Next i
                             'update

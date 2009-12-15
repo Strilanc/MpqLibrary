@@ -17,7 +17,7 @@ Namespace Compression
                     Contract.Assume(tree.nodes.Count > 0)
                     Dim curNode = tree.nodes(0)  'root
                     Do While curNode.type = HuffmanNodeType.Internal
-                        If buf.BufferedBitCount <= 0 Then  buf.QueueByte(sequence.MoveNextAndReturn())
+                        If buf.BitCount <= 0 Then buf.QueueByte(sequence.MoveNextAndReturn())
                         curNode = If(buf.TakeBit(), curNode.rightChild, curNode.leftChild)
                     Loop
 
@@ -29,10 +29,10 @@ Namespace Compression
                             buf.QueueByte(sequence.MoveNextAndReturn())
                             Dim newValue = buf.TakeByte()
                             tree.Increase(newValue)
-                            If treeIndex <> 0 Then  tree.Increase(newValue)
+                            If treeIndex <> 0 Then tree.Increase(newValue)
                             Return newValue
                         Case HuffmanNodeType.Value
-                            If treeIndex = 0 Then  tree.Increase(curNode.value)
+                            If treeIndex = 0 Then tree.Increase(curNode.value)
                             Return CByte(curNode.value)
                         Case Else
                             Throw curNode.type.MakeImpossibleValueException()

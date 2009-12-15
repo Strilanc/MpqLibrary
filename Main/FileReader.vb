@@ -250,6 +250,7 @@ Friend Class FileReader
         If origin = IO.SeekOrigin.End Then offset += Length
         Contract.Assume(offset > 0)
         Position = offset
+        Return offset
     End Function
 
     Public Overrides Function Read(ByVal buffer() As Byte, ByVal offset As Integer, ByVal count As Integer) As Integer

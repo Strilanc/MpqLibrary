@@ -93,7 +93,7 @@ Namespace Compression
                         End If
 
                         'Check for end of stream
-                        If Not seqBuf.TryBufferBits(1) Then  Return controller.Break()
+                        If Not seqBuf.TryBufferBits(1) Then Return controller.Break()
 
                         If Not seqBuf.TakeBit Then
                             '[Single encoded byte]
@@ -111,13 +111,13 @@ Namespace Compression
                             'copy length
                             Dim runLength = CUShort(ReadTreeNodeFrom(CopyLengthTree, seqBuf)) '[range 0 to 15]
                             Dim r = runLength - 7
-                            If r > 0 Then  runLength = CByte(seqBuf.Take(r)) + CopyLengthTable(runLength)
+                            If r > 0 Then runLength = CByte(seqBuf.Take(r).Bits) + CopyLengthTable(runLength)
                             runLength += CUShort(2) '[range 2 to 518]
 
                             'jump-back length
                             Dim runOffset = CUShort(ReadTreeNodeFrom(JumpLengthTree, seqBuf)) '[range 0 to 63]
                             Dim d = If(runLength = 2, 2, numExtraJumpBits)
-                            runOffset = (runOffset << d) Or CByte(seqBuf.Take(d))
+                            runOffset = (runOffset << d) Or CByte(seqBuf.Take(d).Bits)
                             runOffset += CUShort(1) '[range 1 to 4096]
 
                             'perform
