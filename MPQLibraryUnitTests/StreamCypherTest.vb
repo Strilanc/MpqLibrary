@@ -1,8 +1,7 @@
-﻿Imports Strilbrary.Numerics
+﻿Imports Strilbrary.Collections
 Imports Strilbrary.Streams
 Imports Strilbrary.Enumeration
 Imports Microsoft.VisualStudio.TestTools.UnitTesting
-Imports MPQ.Cryptography
 
 <TestClass()>
 Public Class StreamCypherTest

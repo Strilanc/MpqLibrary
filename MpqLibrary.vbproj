@@ -109,12 +109,13 @@
     <Import Include="Microsoft.VisualBasic" />
     <Import Include="Mpq.Compression" />
     <Import Include="Mpq.Cryptography" />
-    <Import Include="Strilbrary" />
+    <Import Include="Strilbrary.Collections" />
     <Import Include="Strilbrary.Enumeration" />
     <Import Include="Strilbrary.Exceptions" />
-    <Import Include="Strilbrary.Numerics" />
+    <Import Include="Strilbrary.Misc" />
     <Import Include="Strilbrary.Streams" />
     <Import Include="Strilbrary.Threading" />
+    <Import Include="Strilbrary.Values" />
     <Import Include="System" />
     <Import Include="System.Collections" />
     <Import Include="System.Collections.Generic" />

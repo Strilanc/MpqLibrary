@@ -1,6 +1,4 @@
-﻿Imports Strilbrary.Numerics
-Imports Strilbrary.Streams
-Imports Strilbrary.Enumeration
+﻿Imports Strilbrary.Values
 Imports Microsoft.VisualStudio.TestTools.UnitTesting
 Imports MPQ.Cryptography.Cryptography_Accessor
 
