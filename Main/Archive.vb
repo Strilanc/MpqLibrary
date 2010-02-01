@@ -81,9 +81,9 @@ Public Class Archive
         End Get
     End Property
 
-    Public Sub New(ByVal fileName As String)
-        Contract.Requires(fileName IsNot Nothing)
-        Me.streamFactory = Function() New IO.FileStream(fileName, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read)
+    Public Sub New(ByVal streamFactory As Func(Of IO.Stream))
+        Contract.Requires(streamFactory IsNot Nothing)
+        Me.streamFactory = streamFactory
         Dim stream = streamFactory()
         Using reader = New IO.BinaryReader(stream)
             Dim hashtableSize As UInteger
@@ -132,6 +132,10 @@ Public Class Archive
             Me._blockTable = New BlockTable(stream, Me.Position + blockTableOffset, blockTableSize)
             Me._hashtable = New Hashtable(stream, Me.Position + hashtableOffset, hashtableSize, CUInt(BlockTable.Size))
         End Using
+    End Sub
+    Public Sub New(ByVal fileName As String)
+        Me.New(Function() New IO.FileStream(fileName, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read))
+        Contract.Requires(fileName IsNot Nothing)
     End Sub
 
     <Pure()>
