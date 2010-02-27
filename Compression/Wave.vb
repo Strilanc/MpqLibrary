@@ -1,3 +1,5 @@
+Imports MPQ.Library
+
 Namespace Compression
     Friend Class WaveDecompressor
         Implements IConverter(Of Byte, Byte)

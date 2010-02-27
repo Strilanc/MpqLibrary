@@ -1,3 +1,5 @@
+Imports MPQ.Library
+
 Namespace Compression
     Friend Class HuffmanDecompressor
         Implements IConverter(Of Byte, Byte)

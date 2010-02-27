@@ -1,23 +1,25 @@
-''' Copyright (C) 2008 Craig Gidney, craig.gidney@gmail.com
-'''
-''' This source was adepted from the C version of mpqlib.
-''' The C version belongs to the following authors,
-'''
-''' Maik Broemme, mbroemme@plusserver.de
-''' 
-''' This program is free software; you can redistribute it and/or modify
-''' it under the terms of the GNU General Public License as published by
-''' the Free Software Foundation; either version 2 of the License, or
-''' (at your option) any later version.
-'''
-''' This program is distributed in the hope that it will be useful,
-''' but WITHOUT ANY WARRANTY; without even the implied warranty of
-''' MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-''' GNU General Public License for more details.
-'''
-''' You should have received a copy of the GNU General Public License
-''' along with this program; if not, write to the Free Software
-''' Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+'' Copyright (C) 2008 Craig Gidney, craig.gidney@gmail.com
+''
+'' This source was adepted from the C version of mpqlib.
+'' The C version belongs to the following authors,
+''
+'' Maik Broemme, mbroemme@plusserver.de
+'' 
+'' This program is free software; you can redistribute it and/or modify
+'' it under the terms of the GNU General Public License as published by
+'' the Free Software Foundation; either version 2 of the License, or
+'' (at your option) any later version.
+''
+'' This program is distributed in the hope that it will be useful,
+'' but WITHOUT ANY WARRANTY; without even the implied warranty of
+'' MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+'' GNU General Public License for more details.
+''
+'' You should have received a copy of the GNU General Public License
+'' along with this program; if not, write to the Free Software
+'' Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+
+Imports MPQ.Library
 
 Public Enum LanguageId As UInteger
     Neutral = 0
@@ -59,13 +61,13 @@ Public Class Archive
     Friend ReadOnly Size As UInteger
     Private ReadOnly _hashtable As Hashtable 'Map from hashes filesnames to file table indexes
     Private ReadOnly _blockTable As BlockTable 'Stores the position, size, and other information about all files in the archive
-    Friend ReadOnly streamFactory As Func(Of IO.Stream)
+    Friend ReadOnly StreamFactory As Func(Of IRandomReadableStream)
     Friend ReadOnly FileChunkSize As UInteger 'Size of the chunks files in the archive are divided into
 
     <ContractInvariantMethod()> Private Sub ObjectInvariant()
         Contract.Invariant(_hashtable IsNot Nothing)
         Contract.Invariant(_blockTable IsNot Nothing)
-        Contract.Invariant(streamFactory IsNot Nothing)
+        Contract.Invariant(StreamFactory IsNot Nothing)
     End Sub
 
     Public ReadOnly Property Hashtable As Hashtable
@@ -81,83 +83,109 @@ Public Class Archive
         End Get
     End Property
 
-    Public Sub New(ByVal streamFactory As Func(Of IO.Stream))
+    Public Sub New(ByVal streamFactory As Func(Of IRandomReadableStream),
+                   ByVal archiveOffset As UInt32,
+                   ByVal archiveSize As UInt32,
+                   ByVal hashTable As Hashtable,
+                   ByVal blockTable As BlockTable,
+                   ByVal fileChunkSize As UInt32)
         Contract.Requires(streamFactory IsNot Nothing)
-        Me.streamFactory = streamFactory
-        Dim stream = streamFactory()
-        Using reader = New IO.BinaryReader(stream)
-            Dim hashtableSize As UInteger
-            Dim blockTableSize As UInteger
-            Dim hashtableOffset As UInteger
-            Dim blockTableOffset As UInteger
+        Contract.Requires(blockTable IsNot Nothing)
+        Contract.Requires(hashTable IsNot Nothing)
+        Me.StreamFactory = streamFactory
+        Me.Position = archiveOffset
+        Me.Size = archiveSize
+        Me._hashtable = hashTable
+        Me._blockTable = blockTable
+    End Sub
 
-            'Find valid header
-            Dim found = False
-            For Me.Position = 0 To CUInt(stream.Length - 1) Step 512
-                stream.Seek(Position, IO.SeekOrigin.Begin)
+    Public Shared Function FromStreamFactory(ByVal streamFactory As Func(Of IRandomReadableStream)) As Archive
+        Contract.Requires(streamFactory IsNot Nothing)
+        Contract.Ensures(Contract.Result(Of Archive)() IsNot Nothing)
 
-                Dim fileMagicValue = reader.ReadUInt32()
-                Dim headerSize = reader.ReadUInt32()
-                Me.Size = reader.ReadUInt32()
-                reader.ReadUInt16() 'format version
-                FileChunkSize = reader.ReadUInt16() 'order of block size relative to &H200 (corrected later)
-                hashtableOffset = reader.ReadUInt32() 'relative to position of archive (corrected later)
-                blockTableOffset = reader.ReadUInt32() 'relative to position of archive (corrected later)
-                hashtableSize = reader.ReadUInt32()
-                blockTableSize = reader.ReadUInt32()
-
-                'Protected MPQs mess with values
-                If Me.Size = 0 Then
-                    Me.Size = CUInt(stream.Length) - Position
+        Using stream = streamFactory()
+            For archiveOffset = 0UI To CUInt(stream.Length - 128) Step 512UI
+                Dim archive = FromStreamTryOffset(streamFactory, stream, archiveOffset)
+                If archive IsNot Nothing Then
+                    Return archive
                 End If
-
-                'Check for invalid signature
-                If fileMagicValue <> MagicHeaderValue Then Continue For
-                If CULng(hashtableOffset) + CULng(hashtableSize) >= Size Then Continue For
-                If blockTableOffset >= Size Then Continue For
-
-                found = True
-                Exit For
-            Next Me.Position
-
-            If Not found Then Throw New IO.InvalidDataException("MPQ archive header not found.")
-
-            'Correct values
-            If blockTableOffset + blockTableSize * 16 > Me.Size Then
-                blockTableSize = (Me.Size - blockTableOffset) \ 16UI
-            End If
-            Me.FileChunkSize = 512UI << CInt(Me.FileChunkSize)
-
-            'Load tables
-            Me._blockTable = New BlockTable(stream, Me.Position + blockTableOffset, blockTableSize)
-            Me._hashtable = New Hashtable(stream, Me.Position + hashtableOffset, hashtableSize, CUInt(BlockTable.Size))
+            Next archiveOffset
         End Using
-    End Sub
-    Public Sub New(ByVal fileName As String)
-        Me.New(Function() New IO.FileStream(fileName, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read))
+
+        Throw New IO.InvalidDataException("MPQ archive header not found.")
+    End Function
+    Private Shared Function FromStreamTryOffset(ByVal streamFactory As Func(Of IRandomReadableStream),
+                                                ByVal stream As IRandomReadableStream,
+                                                ByVal archiveOffset As UInt32) As Archive
+        Contract.Requires(streamFactory IsNot Nothing)
+        Contract.Requires(stream IsNot Nothing)
+
+        'Find valid header
+        stream.Position = archiveOffset
+
+        Dim fileMagicValue = stream.ReadUInt32()
+        Dim headerSize = stream.ReadUInt32()
+        Dim archiveSize = stream.ReadUInt32()
+        Dim formatVersion = stream.ReadUInt16()
+        Dim fileChunkSizePower = stream.ReadUInt16()
+        Dim hashtableOffset = stream.ReadUInt32() 'relative to archiveOffset
+        Dim blockTableOffset = stream.ReadUInt32() 'relative to archiveOffset
+        Dim hashtableSize = stream.ReadUInt32()
+        Dim blockTableSize = stream.ReadUInt32()
+
+        'Protected MPQs mess with values
+        If archiveSize = 0 Then
+            archiveSize = CUInt(stream.Length) - archiveOffset
+        End If
+
+        'Check for invalid signature
+        If fileMagicValue <> MagicHeaderValue Then Return Nothing
+        If CULng(hashtableOffset) + CULng(hashtableSize) >= archiveSize Then Return Nothing
+        If blockTableOffset >= archiveSize Then Return Nothing
+
+        'Correct values
+        If blockTableOffset + blockTableSize * 16 > archiveSize Then
+            blockTableSize = (archiveSize - blockTableOffset) \ 16UI
+        End If
+        Dim fileChunkSize = 512UI << fileChunkSizePower
+
+        'Load tables
+        Dim blockTable = MPQ.BlockTable.FromStream(stream, archiveOffset + blockTableOffset, blockTableSize)
+        Dim hashtable = MPQ.Hashtable.FromStream(stream, archiveOffset + hashtableOffset, hashtableSize, CUInt(blockTable.Size))
+
+        Return New Archive(streamFactory,
+                           archiveOffset,
+                           archiveSize,
+                           hashtable,
+                           blockTable,
+                           fileChunkSize)
+    End Function
+    Public Shared Function FromFile(ByVal fileName As String) As Archive
         Contract.Requires(fileName IsNot Nothing)
-    End Sub
+        Contract.Ensures(Contract.Result(Of Archive)() IsNot Nothing)
+        Return FromStreamFactory(Function() New IO.FileStream(fileName, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read).AsRandomReadableStream)
+    End Function
 
     <Pure()>
-    Public Function OpenFileInBlock(ByVal blockIndex As UInteger) As IO.Stream
+    Public Function OpenFileInBlock(ByVal blockIndex As UInteger) As IRandomReadableStream
         Contract.Requires(blockIndex >= 0)
-        Contract.Ensures(Contract.Result(Of IO.Stream)() IsNot Nothing)
+        Contract.Ensures(Contract.Result(Of IRandomReadableStream)() IsNot Nothing)
 
         Dim block = BlockTable.TryGetBlock(blockIndex)
         If block Is Nothing Then Throw New InvalidOperationException("Invalid block index.")
         If (block.Properties And BlockProperties.Used) <> 0 Then Throw New InvalidOperationException("Block is empty.")
-        Return New FileReader(streamFactory(), Me.Position, Me.FileChunkSize, block)
+        Return New FileReader(StreamFactory(), Me.Position, Me.FileChunkSize, block)
     End Function
     <Pure()>
-    Public Function OpenFileByName(ByVal fileName As String) As IO.Stream
+    Public Function OpenFileByName(ByVal fileName As String) As IRandomReadableStream
         Contract.Requires(fileName IsNot Nothing)
-        Contract.Ensures(Contract.Result(Of IO.Stream)() IsNot Nothing)
+        Contract.Ensures(Contract.Result(Of IRandomReadableStream)() IsNot Nothing)
 
-        Dim blockIndex = Hashtable(fileName).blockIndex
+        Dim blockIndex = Hashtable(fileName).BlockIndex
         Dim block = BlockTable.TryGetBlock(blockIndex)
         If block Is Nothing Then Throw New InvalidOperationException("Invalid block index.")
         If (block.Properties And BlockProperties.Used) = 0 Then Throw New InvalidOperationException("Block is empty.")
-        Return New FileReader(streamFactory(), Me.Position, Me.FileChunkSize, block, fileName)
+        Return New FileReader(StreamFactory(), Me.Position, Me.FileChunkSize, block, fileName)
     End Function
 
     Public Sub WriteToStream(ByVal stream As IO.Stream)
@@ -167,7 +195,7 @@ Public Class Archive
 
         'keep only valid file entries
         Dim validBlocks = New List(Of Block)
-        Dim validFileData = New List(Of IO.Stream)
+        Dim validFileData = New List(Of IRandomReadableStream)
         Dim idMap As New Dictionary(Of UInteger, UInteger)
         Dim id = 0UI
         For i = 0 To Me.BlockTable.Size - 1
@@ -179,7 +207,7 @@ Public Class Archive
                 Continue For
             End If
 
-            validFileData.Add(New IO.BufferedStream(Me.OpenFileInBlock(i_)))
+            validFileData.Add(Me.OpenFileInBlock(i_))
             validBlocks.Add(Me.BlockTable.TryGetBlock(i_))
             idMap(i_) = id
             id += 1UI
@@ -187,7 +215,7 @@ Public Class Archive
 
         'Write containing file header
         Dim bf = New IO.BufferedStream(stream)
-        Using fileData = New IO.BufferedStream(Me.streamFactory())
+        Using fileData = Me.StreamFactory()
             For i = 0 To Me.Position - 1
                 bf.WriteByte(CByte(fileData.ReadByte()))
             Next i
@@ -213,15 +241,13 @@ Public Class Archive
                                           fileSize:=CUInt(validFileData(i).Length),
                                           length:=CUInt(bf.Position - dataOffset - archiveHeaderPosition),
                                           properties:=BlockProperties.Continuous Or BlockProperties.Compressed Or BlockProperties.Used)
-            validFileData(i).Close()
+            validFileData(i).Dispose()
         Next i
         Dim endPos = bf.Position
 
         'Write block table
         bf.Position = archiveHeaderPosition + blockTableOffset
-        With New IO.BinaryWriter(
-                New StreamEncrypter(HashString("(block table)", CryptTableIndex.CypherKeyHash)).
-                    ConvertWriteOnlyStream(bf))
+        With bf.AsWritableStream.ConvertUsing(New StreamEncrypter(HashString("(block table)", CryptTableIndex.CypherKeyHash)))
             For Each f In validBlocks
                 .Write(f.Offset)
                 .Write(f.Length)
@@ -233,9 +259,7 @@ Public Class Archive
 
         'Write hash table
         bf.Position = archiveHeaderPosition + hashtableOffset
-        With New IO.BinaryWriter(
-                New StreamEncrypter(HashString("(hash table)", CryptTableIndex.CypherKeyHash)).
-                    ConvertWriteOnlyStream(bf))
+        With bf.AsWritableStream.ConvertUsing(New StreamEncrypter(HashString("(hash table)", CryptTableIndex.CypherKeyHash)))
             idMap(Hashtable.BlockIndex.NoFile) = Hashtable.BlockIndex.NoFile
             idMap(Hashtable.BlockIndex.DeletedFile) = Hashtable.BlockIndex.DeletedFile
             For Each h In Hashtable.Entries

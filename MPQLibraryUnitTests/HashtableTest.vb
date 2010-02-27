@@ -1,14 +1,13 @@
 ﻿Imports Strilbrary.Streams
-Imports Strilbrary.Enumeration
+Imports MPQ.Library
 Imports Microsoft.VisualStudio.TestTools.UnitTesting
-Imports MPQ.Cryptography.Cryptography_Accessor
 Imports MPQ.Cryptography
 
 <TestClass()>
 Public Class HashtableTest
-    Private Shared Function BuildTestHashtableData() As IO.Stream
-        Dim input = New IO.MemoryStream()
-        Dim inputCypher = New StreamEncrypter_Accessor(HashString("(hash table)", CryptTableIndex.CypherKeyHash)).ConvertWriteOnlyStream(input)
+    Private Shared Function BuildTestHashtableData() As IRandomReadableStream
+        Dim input = New IO.MemoryStream().AsRandomAccessStream
+        Dim inputCypher = CType(input, IWritableStream).ConvertUsing(New StreamEncrypter(HashString("(hash table)", CryptTableIndex.CypherKeyHash)))
 
         inputCypher.Write(CULng(Long.MaxValue))
         inputCypher.Write(MPQ.LanguageId.English)
@@ -25,7 +24,7 @@ Public Class HashtableTest
 
     <TestMethod()>
     Public Sub ConstructTest_SingleBlock()
-        Dim table = New MPQ.Hashtable_Accessor(BuildTestHashtableData, 0, 2, 1)
+        Dim table = MPQ.Hashtable.FromStream(BuildTestHashtableData, 0, 2, 1)
         Assert.IsTrue(table.Size = 2)
         Dim entries = table.Entries.ToArray()
         Assert.IsTrue(entries(0).FileKey = Long.MaxValue)

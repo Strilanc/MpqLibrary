@@ -72,7 +72,7 @@ Public Class ListFile
     '''<summary>Ensures files mentioned in an archive's listfile are included.</summary>
     Public Sub IncludeArchiveListFile(ByVal archive As Archive)
         Contract.Requires(archive IsNot Nothing)
-        Using reader = New IO.StreamReader(archive.OpenFileByName("(listfile)"))
+        Using reader = New IO.StreamReader(archive.OpenFileByName("(listfile)").AsStream)
             Do Until reader.EndOfStream
                 Me.Include(reader.ReadLine)
             Loop

@@ -69,6 +69,7 @@
     <Compile Include="HashtableTest.vb" />
     <Compile Include="CryptographyTest.vb" />
     <Compile Include="My Project\AssemblyInfo.vb" />
+    <Compile Include="PushEnumeratorTest.vb" />
     <Compile Include="StreamCypherTest.vb" />
   </ItemGroup>
   <ItemGroup>
@@ -76,9 +77,6 @@
       <Project>{4349B846-DA0A-4B4E-91BF-18BCF552D2EB}</Project>
       <Name>MPQLibrary</Name>
     </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <Shadow Include="Test References\MPQLibrary.accessor" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.VisualBasic.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

@@ -24,9 +24,11 @@
 ''''Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 ''''</copyright>
 
+Imports MPQ.Library
+
 Namespace Cryptography
-    Friend Module Cryptography
-        Friend Enum CryptTableIndex As Integer
+    Public Module Cryptography
+        Public Enum CryptTableIndex As Integer
             PositionHash = 0
             NameHashLow = 1
             NameHashHigh = 2
@@ -57,7 +59,7 @@ Namespace Cryptography
             For Each h In EnumValues(Of CryptTableIndex)()
                 Contract.Assume(h >= 0)
                 Contract.Assume(h < 5)
-                d(h) = table.SubArray(CInt(h) * 256, 256)
+                d(h) = table.Skip(CInt(h) * 256).Take(256).ToArray
             Next h
             Return d
         End Function
@@ -134,11 +136,11 @@ Namespace Cryptography
                 Dim k1 = n - T(possibleValue)
                 If (k1 And &HFF) <> possibleValue Then Continue For 'doesn't satisfy basic constraint
 
-                Using testStream = New IO.MemoryStream(capacity:=8)
+                Using testStream = New IO.MemoryStream(capacity:=8).AsRandomAccessStream
                     testStream.Write(cypherValue1)
                     testStream.Write(cyphervalue2)
-                    testStream.Seek(0, IO.SeekOrigin.Begin)
-                    Using reader = New IO.BinaryReader(New StreamDecrypter(k1).ConvertReadOnlyStream(testStream))
+                    testStream.Position = 0
+                    Using reader = CType(testStream, IReadableStream).ConvertUsing(New StreamDecrypter(k1))
                         'check decryption for correctness
                         If reader.ReadUInt32() <> targetValue1 Then Continue For 'doesn't match plaintext
                         'keep track of key with lowest second value [lower values are more likely plaintexts]

@@ -1,6 +1,8 @@
-﻿Namespace Cryptography
+﻿Imports MPQ.Library
+
+Namespace Cryptography
     '''<summary>Decrypts encrypted data in an MPQ file.</summary>
-    Friend Class StreamEncrypter
+    Public Class StreamEncrypter
         Inherits AbstractMpqStreamCypher
         Public Sub New(ByVal key As ModInt32)
             MyBase.new(key)
@@ -11,7 +13,7 @@
     End Class
 
     '''<summary>Encrypts data for placement in an MPQ file.</summary>
-    Friend Class StreamDecrypter
+    Public Class StreamDecrypter
         Inherits AbstractMpqStreamCypher
         Public Sub New(ByVal key As ModInt32)
             MyBase.new(key)
@@ -22,7 +24,7 @@
     End Class
 
     '''<summary>Outlines the algorithm for encryption and decryption of data in MPQ files.</summary>
-    Friend MustInherit Class AbstractMpqStreamCypher
+    Public MustInherit Class AbstractMpqStreamCypher
         Implements IConverter(Of Byte, Byte)
         Private ReadOnly initialKey1 As ModInt32
         Private Shared ReadOnly initialKey2 As ModInt32 = &HEEEEEEEE
@@ -43,12 +45,12 @@
                     Contract.Assume(controller IsNot Nothing)
 
                     'Get next dword to cypher (with no cyphering on remainder bytes)
-                    If Not sequence.MoveNext Then  Return controller.Break()
+                    If Not sequence.MoveNext Then Return controller.Break()
                     Dim data As New List(Of Byte)(4)
                     Do
                         data.Add(sequence.Current)
-                        If data.Count >= 4 Then  Exit Do
-                        If Not sequence.MoveNext Then  Return controller.Sequence(data)
+                        If data.Count >= 4 Then Exit Do
+                        If Not sequence.MoveNext Then Return controller.Sequence(data)
                     Loop
 
                     'Cypher

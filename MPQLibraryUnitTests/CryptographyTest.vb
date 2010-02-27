@@ -1,6 +1,6 @@
 ﻿Imports Strilbrary.Values
 Imports Microsoft.VisualStudio.TestTools.UnitTesting
-Imports MPQ.Cryptography.Cryptography_Accessor
+Imports MPQ.Cryptography
 
 <TestClass()>
 Public Class CryptographyTest

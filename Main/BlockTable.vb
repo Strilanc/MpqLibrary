@@ -1,4 +1,6 @@
-﻿<Flags()>
+﻿Imports MPQ.Library
+
+<Flags()>
 Public Enum BlockProperties As UInteger
     Imploded = 1UI << 8
     Compressed = 1UI << 9
@@ -13,45 +15,51 @@ End Enum
 '''Each entry in the file table tells you where some file is and how to access it.
 '''</summary>
 Public Class BlockTable
-    Private ReadOnly blocks As New List(Of Block)
+    Private ReadOnly _blocks As IReadableList(Of Block)
 
-    '''<summary>Reads the file table from an MPQ archive</summary>
-    Friend Sub New(ByVal stream As IO.Stream,
-                   ByVal position As Long,
-                   ByVal entryCount As UInteger)
-        Contract.Requires(stream IsNot Nothing)
-
-        'Read (with decryption)
-        stream.Seek(position, IO.SeekOrigin.Begin)
-        Using br = New IO.BinaryReader(
-                    New IO.BufferedStream(
-                     New StreamDecrypter(HashString("(block table)", CryptTableIndex.CypherKeyHash)).
-                      ConvertReadOnlyStream(stream)))
-            For i = 0 To entryCount - 1
-                Dim offset = br.ReadUInt32
-                If offset > stream.Length Then Exit For 'implicit end of table [length not included in calculation on purpose]
-                blocks.Add(New Block(offset,
-                                     length:=br.ReadUInt32(),
-                                     fileSize:=br.ReadUInt32(),
-                                     properties:=CType(br.ReadUInt32(), BlockProperties)))
-            Next i
-        End Using
+    <ContractInvariantMethod()> Private Sub ObjectInvariant()
+        Contract.Invariant(_blocks IsNot Nothing)
     End Sub
+
+    Public Sub New(ByVal blocks As IReadableList(Of Block))
+        Contract.Requires(blocks IsNot Nothing)
+        Me._blocks = blocks
+    End Sub
+
+    Public Shared Function FromStream(ByVal encryptedStream As IRandomReadableStream,
+                                      ByVal position As UInt32,
+                                      ByVal entryCount As UInt32) As BlockTable
+        Contract.Requires(encryptedStream IsNot Nothing)
+        encryptedStream.Position = position
+
+        Dim stream = encryptedStream.ConvertUsing(New StreamDecrypter(HashString("(block table)", CryptTableIndex.CypherKeyHash)))
+        Dim blocks = New List(Of Block)
+        For i = 0 To entryCount - 1
+            Dim offset = stream.ReadUInt32
+            If offset > encryptedStream.Length Then Exit For 'implicit end of table [length not included in calculation on purpose]
+            blocks.Add(New Block(offset:=offset,
+                                 length:=stream.ReadUInt32(),
+                                 fileSize:=stream.ReadUInt32(),
+                                 properties:=CType(stream.ReadUInt32(), BlockProperties)))
+        Next i
+
+        Return New BlockTable(blocks.ToReadableList)
+    End Function
 
     '''<summary>Determines the number of blocks in the table.</summary>
     Public ReadOnly Property Size As Integer
         Get
             Contract.Ensures(Contract.Result(Of Integer)() >= 0)
-            Return blocks.Count
+            Return _blocks.Count
         End Get
     End Property
 
     '''<summary>Returns the block at the given index. Null if the index is out of range.</summary>
     <Pure()>
-    Public Function TryGetBlock(ByVal index As UInteger) As Block
-        If index >= blocks.Count Then Return Nothing
-        Contract.Assume(CInt(index) >= 0)
-        Return blocks(CInt(index))
+    Public Function TryGetBlock(ByVal index As UInt32) As Block
+        Contract.Requires(index >= 0)
+        If index >= _blocks.Count Then Return Nothing
+        Return _blocks(CInt(index))
     End Function
 End Class
 

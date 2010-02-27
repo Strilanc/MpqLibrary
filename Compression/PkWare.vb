@@ -1,4 +1,6 @@
-﻿''''MPQPkWare.vb - explode function of PKWARE data compression library.
+﻿Imports MPQ.Library
+
+''''MPQPkWare.vb - explode function of PKWARE data compression library.
 ''''
 ''''Copyright (C) 2008 Craig Gidney <craig.gidney@gmail.com>
 ''''

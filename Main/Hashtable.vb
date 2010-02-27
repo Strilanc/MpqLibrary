@@ -1,52 +1,61 @@
-﻿'''<summary>
+﻿Imports MPQ.Library
+
+'''<summary>
 '''The hashtable from an MPQ archive.
 '''Each entry tells you a file index and the hash of the file's original name.
 '''The hashtable doesn't tell you a file's original name, only what it hashes to.
 '''</summary>
 Public Class Hashtable
-    Private ReadOnly hashes As New List(Of HashEntry)
+    Private ReadOnly _hashes As IReadableList(Of HashEntry)
 
     Public Enum BlockIndex As UInteger
         NoFile = &HFFFFFFFFUI
         DeletedFile = &HFFFFFFFEL
     End Enum
 
-    '''<summary>Reads the hashtable from an MPQ archive</summary>
-    Friend Sub New(ByVal stream As IO.Stream,
-                   ByVal position As Long,
-                   ByVal hashtableSize As UInteger,
-                   ByVal blockTableSize As UInteger)
-        Contract.Requires(stream IsNot Nothing)
 
-        'Prepare reader
-        stream.Seek(position, IO.SeekOrigin.Begin)
-        Using br = New IO.BinaryReader(
-                    New IO.BufferedStream(
-                     New StreamDecrypter(HashString("(hash table)", CryptTableIndex.CypherKeyHash)).ConvertReadOnlyStream(stream)))
-
-            'Read values
-            For repeat = 0 To hashtableSize - 1
-                Dim fileKey = br.ReadUInt64()
-                Dim language = CType(br.ReadUInt32(), LanguageId)
-                Dim blockIndex = CType(br.ReadUInt32(), Hashtable.BlockIndex)
-                Dim invalid = blockIndex >= blockTableSize _
-                              AndAlso blockIndex <> Hashtable.BlockIndex.DeletedFile _
-                              AndAlso blockIndex <> Hashtable.BlockIndex.NoFile
-                hashes.Add(New HashEntry(fileKey, language, blockIndex, invalid))
-            Next repeat
-        End Using
+    <ContractInvariantMethod()> Private Sub ObjectInvariant()
+        Contract.Invariant(_hashes IsNot Nothing)
     End Sub
+
+    '''<summary>Reads the hashtable from an MPQ archive</summary>
+    Public Sub New(ByVal hashes As IReadableList(Of HashEntry))
+        Contract.Requires(hashes IsNot Nothing)
+        Me._hashes = hashes
+    End Sub
+
+    Public Shared Function FromStream(ByVal encryptedStream As IRandomReadableStream,
+                                      ByVal position As UInt32,
+                                      ByVal hashTableSize As UInt32,
+                                      ByVal blockTableSize As UInt32) As Hashtable
+        Contract.Requires(encryptedStream IsNot Nothing)
+        encryptedStream.Position = position
+
+        Dim stream = encryptedStream.ConvertUsing(New StreamDecrypter(HashString("(hash table)", CryptTableIndex.CypherKeyHash)))
+        Dim hashes = New List(Of HashEntry)
+        For repeat = 0 To hashTableSize - 1
+            Dim fileKey = stream.ReadUInt64()
+            Dim language = CType(stream.ReadUInt32(), LanguageId)
+            Dim blockIndex = CType(stream.ReadUInt32(), Hashtable.BlockIndex)
+            Dim invalid = blockIndex >= blockTableSize _
+                          AndAlso blockIndex <> Hashtable.BlockIndex.DeletedFile _
+                          AndAlso blockIndex <> Hashtable.BlockIndex.NoFile
+            hashes.Add(New HashEntry(fileKey, language, blockIndex, invalid))
+        Next repeat
+
+        Return New Hashtable(hashes.ToReadableList)
+    End Function
 
     Public ReadOnly Property Entries As IEnumerable(Of HashEntry)
         Get
             Contract.Ensures(Contract.Result(Of IEnumerable(Of HashEntry))() IsNot Nothing)
-            Return hashes
+            Return _hashes
         End Get
     End Property
     Public ReadOnly Property Size As Integer
         Get
             Contract.Ensures(Contract.Result(Of Integer)() >= 0)
-            Return hashes.Count
+            Return _hashes.Count
         End Get
     End Property
 
@@ -58,10 +67,10 @@ Public Class Hashtable
         Contract.Requires(fileName IsNot Nothing)
 
         Dim nameKey = HashFileName(fileName)
-        Dim offset = CInt(CUInt(HashString(fileName, CryptTableIndex.PositionHash)) Mod CUInt(hashes.Count))
+        Dim offset = CInt(CUInt(HashString(fileName, CryptTableIndex.PositionHash)) Mod CUInt(_hashes.Count))
         Dim firstEmptyEntry As HashEntry = Nothing
-        For i = 0 To hashes.Count - 1
-            Dim curEntry = hashes((i + offset) Mod hashes.Count)
+        For i = 0 To _hashes.Count - 1
+            Dim curEntry = _hashes((i + offset) Mod _hashes.Count)
             If Not curEntry.Exists Then
                 If firstEmptyEntry Is Nothing Then firstEmptyEntry = curEntry
                 If curEntry.blockIndex = BlockIndex.NoFile Then Exit For
@@ -81,7 +90,7 @@ Public Class Hashtable
     Default Public ReadOnly Property Entry(ByVal fileName As String) As HashEntry
         Get
             Contract.Requires(fileName IsNot Nothing)
-            Contract.Requires(contains(fileName))
+            Contract.Requires(Contains(fileName))
             Contract.Ensures(Contract.Result(Of HashEntry)() IsNot Nothing)
             Return FindFileSlot(fileName)
         End Get
