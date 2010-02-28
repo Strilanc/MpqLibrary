@@ -201,13 +201,13 @@ Friend Class FileReader
 
             'STEREO WAVE
             If (header And CompressionTypes.IMA_ADPCM_STEREO) <> 0 Then
-                curChunkStream = curChunkStream.ConvertUsing(New WaveDecompressor(2))
+                curChunkStream = New WaveDecompressionStream(curChunkStream, numChannels:=2)
                 header = header And Not CompressionTypes.IMA_ADPCM_STEREO
             End If
 
             'MONO WAVE
             If (header And CompressionTypes.IMA_ADPCM_MONO) <> 0 Then
-                curChunkStream = curChunkStream.ConvertUsing(New WaveDecompressor(1))
+                curChunkStream = New WaveDecompressionStream(curChunkStream, numChannels:=1)
                 header = header And Not CompressionTypes.IMA_ADPCM_MONO
             End If
 

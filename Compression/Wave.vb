@@ -1,87 +1,6 @@
 Imports MPQ.Library
 
 Namespace Compression
-    Friend Class WaveDecompressor
-        Implements IConverter(Of Byte, Byte)
-
-        Private ReadOnly numChannels As Integer
-
-        Public Sub New(ByVal numChannels As Integer)
-            Contract.Requires(numChannels = 1 OrElse numChannels = 2)
-            Me.numChannels = numChannels
-        End Sub
-
-        Public Function Convert(ByVal sequence As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte, Byte).Convert
-            Dim outBitBuffer = New BitBuffer()
-            Dim stepIndex(0 To numChannels - 1) As Integer
-            Dim prediction(0 To numChannels - 1) As Integer
-            Dim nextChannel = 0
-
-            sequence.MoveNextAndReturn()
-            Dim stepShift = sequence.MoveNextAndReturn()
-            For i = 0 To numChannels - 1
-                stepIndex(i) = &H2C
-                prediction(i) = sequence.MoveNextAndReturn()
-                outBitBuffer.QueueUInt16(CType(prediction(i), ModInt16))
-            Next i
-
-            Return New Enumerator(Of Byte)(
-                Function(controller)
-                    Do
-                        'write processed values
-                        If outBitBuffer.BitCount >= 8 Then Return outBitBuffer.TakeByte()
-
-                        'read next value
-                        If Not sequence.MoveNext() Then Return controller.Break()
-                        Dim b = sequence.Current()
-
-                        'process value
-                        Dim channel = nextChannel
-                        nextChannel = (nextChannel + 1) Mod numChannels
-                        If (b And &H80) <> 0 Then 'special cases
-                            Select Case (b And &H7F)
-                                Case 0 'small step adjustment, with repetition of last prediction
-                                    stepIndex(channel) -= 1
-                                Case 2 'dead value
-                                    Continue Do
-                                Case Else 'large step adjustment
-                                    If (b And &H7F) = 1 Then
-                                        stepIndex(channel) += 8
-                                    Else
-                                        stepIndex(channel) -= 8
-                                    End If
-                                    stepIndex(channel) = stepIndex(channel).Between(0, stepSizeTable.Length - 1)
-                                    nextChannel = channel 'use this channel again in the next iteration
-                                    Continue Do
-                            End Select
-                        Else 'update predictions
-                            'deltas
-                            Dim stepSize = stepSizeTable(stepIndex(channel))
-                            Dim deltaPrediction = stepSize >> stepShift
-                            For i = 0 To 5 '[b is big endian]
-                                If (b >> i And 1) <> 0 Then deltaPrediction += stepSize
-                                stepSize >>= 1
-                            Next i
-                            'update
-                            If (b And &H40) <> 0 Then 'sign bit
-                                prediction(channel) -= deltaPrediction
-                            Else
-                                prediction(channel) += deltaPrediction
-                            End If
-                            stepIndex(channel) += stepIndexDeltaTable(b And &H1F)
-                        End If
-
-                        'keep channel states from going out of range
-                        prediction(channel) = prediction(channel).Between(Short.MinValue, Short.MaxValue)
-                        stepIndex(channel) = stepIndex(channel).Between(0, stepSizeTable.Length - 1)
-
-                        'output prediction
-                        outBitBuffer.QueueUInt16(CType(prediction(channel), ModInt16))
-                    Loop
-                End Function)
-        End Function
-    End Class
-
     Friend Module WaveData 'ADPCM
         Friend ReadOnly stepIndexDeltaTable() As Integer = {
             -1, 0, -1, 4, -1, 2, -1, 6,
@@ -96,4 +15,117 @@ Namespace Compression
             7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767
         }
     End Module
+
+    Friend Class WaveDecompressionStream
+        Implements IReadableStream
+
+        Private ReadOnly _numChannels As Integer
+        Private ReadOnly _subStream As IReadableStream
+        Private ReadOnly _outBitBuffer As BitBuffer = New BitBuffer()
+        Private ReadOnly _stepIndex(0 To 1) As Integer
+        Private ReadOnly _prediction(0 To 1) As Integer
+        Private _nextChannel As Int32
+        Private _stepShift As Byte
+
+        <ContractInvariantMethod()> Private Sub ObjectInvariant()
+            Contract.Invariant(_outBitBuffer IsNot Nothing)
+            Contract.Invariant(_subStream IsNot Nothing)
+            Contract.Invariant(_stepIndex IsNot Nothing)
+            Contract.Invariant(_prediction IsNot Nothing)
+            Contract.Invariant(_stepIndex.Length = 2)
+            Contract.Invariant(_prediction.Length = 2)
+            Contract.Invariant(_numChannels > 0)
+            Contract.Invariant(_numChannels <= 2)
+            Contract.Invariant(_nextChannel >= 0)
+            Contract.Invariant(_nextChannel < _numChannels)
+            Contract.Invariant(_prediction(0) >= Short.MinValue)
+            Contract.Invariant(_prediction(0) <= Short.MaxValue)
+            Contract.Invariant(_prediction(1) >= Short.MinValue)
+            Contract.Invariant(_prediction(1) <= Short.MaxValue)
+        End Sub
+
+        Public Sub New(ByVal subStream As IReadableStream, ByVal numChannels As Integer)
+            Contract.Requires(subStream IsNot Nothing)
+            Contract.Requires(numChannels > 0)
+            Contract.Requires(numChannels <= 2)
+            Me._numChannels = numChannels
+            Me._subStream = subStream
+            Init()
+        End Sub
+        Private Sub Init()
+            _subStream.ReadByte()
+            _stepShift = _subStream.ReadByte
+            For i = 0 To _numChannels - 1
+                _stepIndex(i) = &H2C
+                _prediction(i) = _subStream.ReadByte
+                _outBitBuffer.QueueUInt16(CType(CShort(_prediction(i)), ModInt16))
+            Next i
+        End Sub
+
+        Public Function Read(ByVal maxCount As Int32) As IReadableList(Of Byte) Implements IReadableStream.Read
+            Dim result = New List(Of Byte)(capacity:=maxCount)
+
+            Do
+                'Output buffered values
+                While _outBitBuffer.BitCount >= 8 AndAlso result.Count < maxCount
+                    result.Add(_outBitBuffer.TakeByte())
+                End While
+
+                'Read next value
+                If result.Count >= maxCount Then Exit Do
+                Dim tb = _subStream.TryReadByte()
+                If tb Is Nothing Then Exit Do
+                Dim b = tb.Value
+
+                'process value
+                Dim channel = _nextChannel
+                _nextChannel = (_nextChannel + 1) Mod _numChannels
+                If (b And &H80) <> 0 Then 'special cases
+                    Select Case (b And &H7F)
+                        Case 0 'small step adjustment, with repetition of last prediction
+                            _stepIndex(channel) -= 1
+                        Case 2 'dead value
+                            Continue Do
+                        Case Else 'large step adjustment
+                            If (b And &H7F) = 1 Then
+                                _stepIndex(channel) += 8
+                            Else
+                                _stepIndex(channel) -= 8
+                            End If
+                            _stepIndex(channel) = _stepIndex(channel).Between(0, stepSizeTable.Length - 1)
+                            _nextChannel = channel 'use this channel again in the next iteration
+                            Continue Do
+                    End Select
+                Else 'update predictions
+                    'deltas
+                    Dim stepSize = stepSizeTable(_stepIndex(channel))
+                    Dim deltaPrediction = stepSize >> _stepShift
+                    For i = 0 To 5 '[b is big endian]
+                        If (b >> i And 1) <> 0 Then deltaPrediction += stepSize
+                        stepSize >>= 1
+                    Next i
+                    'update
+                    If (b And &H40) <> 0 Then 'sign bit
+                        _prediction(channel) -= deltaPrediction
+                    Else
+                        _prediction(channel) += deltaPrediction
+                    End If
+                    _stepIndex(channel) += stepIndexDeltaTable(b And &H1F)
+                End If
+
+                'keep channel states from going out of range
+                _prediction(channel) = _prediction(channel).Between(Short.MinValue, Short.MaxValue)
+                _stepIndex(channel) = _stepIndex(channel).Between(0, stepSizeTable.Length - 1)
+
+                'output prediction
+                _outBitBuffer.QueueUInt16(CType(CShort(_prediction(channel)), ModInt16))
+            Loop
+
+            Return result.AsReadableList
+        End Function
+
+        Public Sub Dispose() Implements IDisposable.Dispose
+            _subStream.Dispose()
+        End Sub
+    End Class
 End Namespace
