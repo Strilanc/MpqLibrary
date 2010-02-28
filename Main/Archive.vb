@@ -57,17 +57,17 @@ End Enum
 Public Class Archive
     Private Const MagicHeaderValue As UInteger = &H1A51504D 'MPQ\x1A
 
-    Friend ReadOnly Position As UInteger
-    Friend ReadOnly Size As UInteger
+    Private ReadOnly _archiveOffset As UInteger
+    Private ReadOnly _archiveSize As UInteger
     Private ReadOnly _hashtable As Hashtable 'Map from hashes filesnames to file table indexes
     Private ReadOnly _blockTable As BlockTable 'Stores the position, size, and other information about all files in the archive
-    Friend ReadOnly StreamFactory As Func(Of IRandomReadableStream)
-    Friend ReadOnly FileChunkSize As UInteger 'Size of the chunks files in the archive are divided into
+    Private ReadOnly _streamFactory As Func(Of IRandomReadableStream)
+    Private ReadOnly _fileChunkSize As UInteger 'Size of the chunks files in the archive are divided into
 
     <ContractInvariantMethod()> Private Sub ObjectInvariant()
         Contract.Invariant(_hashtable IsNot Nothing)
         Contract.Invariant(_blockTable IsNot Nothing)
-        Contract.Invariant(StreamFactory IsNot Nothing)
+        Contract.Invariant(_streamFactory IsNot Nothing)
     End Sub
 
     Public ReadOnly Property Hashtable As Hashtable
@@ -92,11 +92,12 @@ Public Class Archive
         Contract.Requires(streamFactory IsNot Nothing)
         Contract.Requires(blockTable IsNot Nothing)
         Contract.Requires(hashTable IsNot Nothing)
-        Me.StreamFactory = streamFactory
-        Me.Position = archiveOffset
-        Me.Size = archiveSize
+        Me._streamFactory = streamFactory
+        Me._archiveOffset = archiveOffset
+        Me._archiveSize = archiveSize
         Me._hashtable = hashTable
         Me._blockTable = blockTable
+        Me._fileChunkSize = fileChunkSize
     End Sub
 
     Public Shared Function FromStreamFactory(ByVal streamFactory As Func(Of IRandomReadableStream)) As Archive
@@ -174,7 +175,7 @@ Public Class Archive
         Dim block = BlockTable.TryGetBlock(blockIndex)
         If block Is Nothing Then Throw New InvalidOperationException("Invalid block index.")
         If (block.Properties And BlockProperties.Used) <> 0 Then Throw New InvalidOperationException("Block is empty.")
-        Return New FileReader(StreamFactory(), Me.Position, Me.FileChunkSize, block)
+        Return New FileReader(_streamFactory(), _archiveOffset, _fileChunkSize, block)
     End Function
     <Pure()>
     Public Function OpenFileByName(ByVal fileName As String) As IRandomReadableStream
@@ -185,7 +186,7 @@ Public Class Archive
         Dim block = BlockTable.TryGetBlock(blockIndex)
         If block Is Nothing Then Throw New InvalidOperationException("Invalid block index.")
         If (block.Properties And BlockProperties.Used) = 0 Then Throw New InvalidOperationException("Block is empty.")
-        Return New FileReader(StreamFactory(), Me.Position, Me.FileChunkSize, block, fileName)
+        Return New FileReader(_streamFactory(), _archiveOffset, _fileChunkSize, block, fileName)
     End Function
 
     Public Sub WriteToStream(ByVal stream As IO.Stream)
@@ -215,8 +216,8 @@ Public Class Archive
 
         'Write containing file header
         Dim bf = New IO.BufferedStream(stream)
-        Using fileData = Me.StreamFactory()
-            For i = 0 To Me.Position - 1
+        Using fileData = _streamFactory()
+            For i = 0 To _archiveOffset - 1
                 bf.WriteByte(CByte(fileData.ReadByte()))
             Next i
         End Using
@@ -247,7 +248,7 @@ Public Class Archive
 
         'Write block table
         bf.Position = archiveHeaderPosition + blockTableOffset
-        With bf.AsWritableStream.ConvertUsing(New StreamEncrypter(HashString("(block table)", CryptTableIndex.CypherKeyHash)))
+        With New EncypherStream(bf.AsWritableStream, HashString("(block table)", CryptTableIndex.CypherKeyHash))
             For Each f In validBlocks
                 .Write(f.Offset)
                 .Write(f.Length)
@@ -259,7 +260,7 @@ Public Class Archive
 
         'Write hash table
         bf.Position = archiveHeaderPosition + hashtableOffset
-        With bf.AsWritableStream.ConvertUsing(New StreamEncrypter(HashString("(hash table)", CryptTableIndex.CypherKeyHash)))
+        With New EncypherStream(bf.AsWritableStream, HashString("(hash table)", CryptTableIndex.CypherKeyHash))
             idMap(Hashtable.BlockIndex.NoFile) = Hashtable.BlockIndex.NoFile
             idMap(Hashtable.BlockIndex.DeletedFile) = Hashtable.BlockIndex.DeletedFile
             For Each h In Hashtable.Entries
@@ -284,7 +285,7 @@ Public Class Archive
         bf.Write(32UI) 'header size
         bf.Write(CUInt(endPos - archiveHeaderPosition))
         bf.Write(21536US) 'format version
-        bf.Write(CUShort(Math.Log(Me.FileChunkSize \ &H200, 2)).Bytes)
+        bf.Write(CUShort(Math.Log(_fileChunkSize \ &H200, 2)).Bytes)
         bf.Write(hashtableOffset)
         bf.Write(blockTableOffset)
         bf.Write(CUInt(Me.Hashtable.Size))

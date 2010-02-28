@@ -32,7 +32,7 @@ Public Class BlockTable
         Contract.Requires(encryptedStream IsNot Nothing)
         encryptedStream.Position = position
 
-        Dim stream = encryptedStream.ConvertUsing(New StreamDecrypter(HashString("(block table)", CryptTableIndex.CypherKeyHash)))
+        Dim stream = New DecypherStream(encryptedStream, HashString("(block table)", CryptTableIndex.CypherKeyHash))
         Dim blocks = New List(Of Block)
         For i = 0 To entryCount - 1
             Dim offset = stream.ReadUInt32

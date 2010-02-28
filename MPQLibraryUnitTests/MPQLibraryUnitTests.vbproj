@@ -69,7 +69,6 @@
     <Compile Include="HashtableTest.vb" />
     <Compile Include="CryptographyTest.vb" />
     <Compile Include="My Project\AssemblyInfo.vb" />
-    <Compile Include="PushEnumeratorTest.vb" />
     <Compile Include="StreamCypherTest.vb" />
   </ItemGroup>
   <ItemGroup>

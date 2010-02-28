@@ -7,7 +7,7 @@ Imports MPQ.Cryptography
 Public Class HashtableTest
     Private Shared Function BuildTestHashtableData() As IRandomReadableStream
         Dim input = New IO.MemoryStream().AsRandomAccessStream
-        Dim inputCypher = CType(input, IWritableStream).ConvertUsing(New StreamEncrypter(HashString("(hash table)", CryptTableIndex.CypherKeyHash)))
+        Dim inputCypher = New EncypherStream(input, HashString("(hash table)", CryptTableIndex.CypherKeyHash))
 
         inputCypher.Write(CULng(Long.MaxValue))
         inputCypher.Write(MPQ.LanguageId.English)

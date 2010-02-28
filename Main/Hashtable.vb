@@ -31,7 +31,7 @@ Public Class Hashtable
         Contract.Requires(encryptedStream IsNot Nothing)
         encryptedStream.Position = position
 
-        Dim stream = encryptedStream.ConvertUsing(New StreamDecrypter(HashString("(hash table)", CryptTableIndex.CypherKeyHash)))
+        Dim stream = New DecypherStream(encryptedStream, HashString("(hash table)", CryptTableIndex.CypherKeyHash))
         Dim hashes = New List(Of HashEntry)
         For repeat = 0 To hashTableSize - 1
             Dim fileKey = stream.ReadUInt64()

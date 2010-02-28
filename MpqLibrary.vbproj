@@ -62,7 +62,7 @@
     <CodeContractsEnableRuntimeChecking>True</CodeContractsEnableRuntimeChecking>
     <CodeContractsCustomRewriterAssembly />
     <CodeContractsCustomRewriterClass />
-    <CodeContractsRuntimeCheckingLevel>Full</CodeContractsRuntimeCheckingLevel>
+    <CodeContractsRuntimeCheckingLevel>Preconditions</CodeContractsRuntimeCheckingLevel>
     <CodeContractsRuntimeOnlyPublicSurface>False</CodeContractsRuntimeOnlyPublicSurface>
     <CodeContractsRuntimeThrowOnFailure>False</CodeContractsRuntimeThrowOnFailure>
     <CodeContractsRuntimeCallSiteRequires>False</CodeContractsRuntimeCallSiteRequires>
@@ -132,7 +132,6 @@
     <Compile Include="Compression\Wave.vb" />
     <Compile Include="Library\ByteSequenceBitBuffer.vb" />
     <Compile Include="Library\Converter.vb" />
-    <Compile Include="Library\PushEnumerator.vb" />
     <Compile Include="Main\Archive.vb" />
     <Compile Include="Cryptography\Cryptography.vb" />
     <Compile Include="Main\BlockTable.vb" />

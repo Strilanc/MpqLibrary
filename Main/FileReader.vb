@@ -123,7 +123,7 @@ Friend Class FileReader
                         decryptionKey += 1 'the key for a block is offset by the block number (offset table is considered block -1)
                     End If
                     'wrap
-                    curChunkStream = curChunkStream.ConvertUsing(New StreamDecrypter(decryptionKey - 1))
+                    curChunkStream = New DecypherStream(curChunkStream, decryptionKey - 1)
                 End If
 
                 'Read
@@ -160,7 +160,7 @@ Friend Class FileReader
         'Decryption layer
         If (block.Properties And BlockProperties.Encrypted) <> 0 Then
             If Not canDecrypt Then Throw New IO.IOException("Couldn't decrypt MPQ block data.")
-            curChunkStream = curChunkStream.ConvertUsing(New StreamDecrypter(decryptionKey + blockIndex))
+            curChunkStream = New DecypherStream(curChunkStream, decryptionKey + blockIndex)
         End If
 
         'Decompression layer
@@ -241,7 +241,7 @@ Friend Class FileReader
     End Property
 
     Public Function Read(ByVal maxCount As Integer) As IReadableList(Of Byte) Implements IReadableStream.Read
-        Dim result = New List(Of Byte)
+        Dim result = New List(Of Byte)(capacity:=maxCount)
         While result.Count < maxCount And Position < Length
             'Go to next block when the current one finishes
             If numBlockBytesLeft <= 0 Then
@@ -249,15 +249,17 @@ Friend Class FileReader
                 If (block.Properties And BlockProperties.Continuous) <> 0 Then numBlockBytesLeft = CUInt(Length - Position)
             End If
 
-            'Delegate read to block stream
+            'Prep read
             Dim numToRead = Min({CInt(Length - Position),
                                  maxCount - result.Count,
                                  CInt(numBlockBytesLeft)})
-            result.AddRange(curChunkStream.ReadExact(numToRead))
-
-            'Update state
             logicalStreamPosition += CUInt(numToRead)
             numBlockBytesLeft -= CUInt(numToRead)
+
+            'Read
+            Dim readData = curChunkStream.ReadExact(numToRead)
+            If readData.Count = maxCount Then Return readData
+            result.AddRange(readData)
         End While
         Return result.AsReadableList
     End Function

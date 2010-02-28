@@ -140,7 +140,7 @@ Namespace Cryptography
                     testStream.Write(cypherValue1)
                     testStream.Write(cyphervalue2)
                     testStream.Position = 0
-                    Using reader = CType(testStream, IReadableStream).ConvertUsing(New StreamDecrypter(k1))
+                    Using reader = New DecypherStream(testStream, k1)
                         'check decryption for correctness
                         If reader.ReadUInt32() <> targetValue1 Then Continue For 'doesn't match plaintext
                         'keep track of key with lowest second value [lower values are more likely plaintexts]

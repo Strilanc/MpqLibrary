@@ -7,7 +7,7 @@ Imports MPQ.Library
 Public Class BlockTableTest
     Private Shared Function BuildTestBlockTableData() As IRandomReadableStream
         Dim input = New IO.MemoryStream
-        Dim inputCypher = input.AsWritableStream.ConvertUsing(New StreamEncrypter(HashString("(block table)", CryptTableIndex.CypherKeyHash)))
+        Dim inputCypher = New EncypherStream(input.AsWritableStream, HashString("(block table)", CryptTableIndex.CypherKeyHash))
 
         inputCypher.Write(1UI)
         inputCypher.Write(2UI)

@@ -1,67 +1,108 @@
 ﻿Imports MPQ.Library
+Imports Strilbrary.Values
 
 Namespace Cryptography
-    '''<summary>Decrypts encrypted data in an MPQ file.</summary>
-    Public Class StreamEncrypter
-        Inherits AbstractMpqStreamCypher
-        Public Sub New(ByVal key As ModInt32)
-            MyBase.new(key)
+    '''<summary>Decrypts/Encrypts mpq data, one byte at a time.</summary>
+    Public NotInheritable Class CypherEngine
+        Private Shared ReadOnly Table As ModInt32() = cryptTable(CryptTableIndex.CypherTable)
+
+        Private _k1 As ModInt32
+        Private _k2 As ModInt32
+
+        Private _curPlainValue As UInt32
+        Private _usedBitCount As Byte
+        Private _mask As UInt32
+
+        <ContractInvariantMethod()> Private Sub ObjectInvariant()
+            Contract.Invariant(_usedBitCount Mod 8 = 0)
+            Contract.Invariant(_usedBitCount <= 32)
         End Sub
-        Protected Overrides Function SelectPlainValue(ByVal inputValue As ModInt32, ByVal outputValue As ModInt32) As ModInt32
-            Return inputValue
+
+        Public Sub New(ByVal key As ModInt32)
+            Me._k1 = key
+            Me._k2 = &HEEEEEEEE
+            PrepMask()
+        End Sub
+        Private Sub PrepMask()
+            _mask = _k1 + _k2 + Table(_k1 And &HFF)
+            _usedBitCount = 0
+            _curPlainValue = 0
+        End Sub
+
+        Public Function EncryptNext(ByVal plainByte As Byte) As Byte
+            Dim cypherByte = plainByte Xor CByte(_mask And &HFFUI)
+            Advance(plainByte)
+            Return cypherByte
         End Function
+        Public Function DecryptNext(ByVal cypherByte As Byte) As Byte
+            Dim plainByte = cypherByte Xor CByte(_mask And &HFFUI)
+            Advance(plainByte)
+            Return plainByte
+        End Function
+
+        Private Sub Advance(ByVal plainByte As Byte)
+            _curPlainValue = _curPlainValue Or (CUInt(plainByte) << _usedBitCount)
+            _mask >>= 8
+            _usedBitCount += CByte(8)
+
+            If _usedBitCount = 32 Then
+                _k2 = _curPlainValue + (_k2 + Table(_k1 And &HFF)) * 33 + 3
+                _k1 = (_k1 >> 11) Or (((Not _k1) << 21) + &H11111111) '[vulnerability: causes k1 to lose entropy via bits being forced set]
+                PrepMask()
+            End If
+        End Sub
     End Class
 
-    '''<summary>Encrypts data for placement in an MPQ file.</summary>
-    Public Class StreamDecrypter
-        Inherits AbstractMpqStreamCypher
-        Public Sub New(ByVal key As ModInt32)
-            MyBase.new(key)
+    Public NotInheritable Class DecypherStream
+        Implements IReadableStream
+
+        Private ReadOnly _substream As IReadableStream
+        Private ReadOnly _engine As CypherEngine
+
+        <ContractInvariantMethod()> Private Sub ObjectInvariant()
+            Contract.Invariant(_substream IsNot Nothing)
+            Contract.Invariant(_engine IsNot Nothing)
         End Sub
-        Protected Overrides Function SelectPlainValue(ByVal inputValue As ModInt32, ByVal outputValue As ModInt32) As ModInt32
-            Return outputValue
+
+        Public Sub New(ByVal substream As IReadableStream, ByVal key As ModInt32)
+            Contract.Requires(substream IsNot Nothing)
+            Me._substream = substream
+            Me._engine = New CypherEngine(key)
+        End Sub
+
+        Public Function Read(ByVal maxCount As Int32) As IReadableList(Of Byte) Implements IReadableStream.Read
+            Return (From b In _substream.Read(maxCount) Select _engine.DecryptNext(b)).ToReadableList
         End Function
+        Public Sub Dispose() Implements IDisposable.Dispose
+            _substream.Dispose()
+        End Sub
     End Class
 
-    '''<summary>Outlines the algorithm for encryption and decryption of data in MPQ files.</summary>
-    Public MustInherit Class AbstractMpqStreamCypher
-        Implements IConverter(Of Byte, Byte)
-        Private ReadOnly initialKey1 As ModInt32
-        Private Shared ReadOnly initialKey2 As ModInt32 = &HEEEEEEEE
+    Public NotInheritable Class EncypherStream
+        Implements IWritableStream
 
-        Public Sub New(ByVal key As ModInt32)
-            Me.initialKey1 = key
+        Private ReadOnly _substream As IWritableStream
+        Private ReadOnly _engine As CypherEngine
+
+        <ContractInvariantMethod()> Private Sub ObjectInvariant()
+            Contract.Invariant(_substream IsNot Nothing)
+            Contract.Invariant(_engine IsNot Nothing)
         End Sub
 
-        Protected MustOverride Function SelectPlainValue(ByVal inputValue As ModInt32, ByVal outputValue As ModInt32) As ModInt32
+        Public Sub New(ByVal substream As IWritableStream, ByVal key As ModInt32)
+            Contract.Requires(substream IsNot Nothing)
+            Me._substream = substream
+            Me._engine = New CypherEngine(key)
+        End Sub
 
-        Public Function Convert(ByVal sequence As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte, Byte).Convert
-            Dim k1 = initialKey1
-            Dim k2 = initialKey2
-            Dim T = cryptTable(CryptTableIndex.CypherTable)
-            Return New Enumerator(Of Byte)(
-                Function(controller)
-                    Contract.Requires(controller IsNot Nothing)
-                    Contract.Assume(controller IsNot Nothing)
-
-                    'Get next dword to cypher (with no cyphering on remainder bytes)
-                    If Not sequence.MoveNext Then Return controller.Break()
-                    Dim data As New List(Of Byte)(4)
-                    Do
-                        data.Add(sequence.Current)
-                        If data.Count >= 4 Then Exit Do
-                        If Not sequence.MoveNext Then Return controller.Sequence(data)
-                    Loop
-
-                    'Cypher
-                    Dim inputValue As ModInt32 = data.ToUInt32(ByteOrder.LittleEndian)
-                    Dim tableValue = T(k1 And &HFF)
-                    Dim outputValue = inputValue Xor (k1 + k2 + tableValue)
-                    k1 = (k1 >> 11) Or (((Not k1) << 21) + &H11111111) '[vulnerability: causes k1 to lose entropy via bits being forced set]
-                    k2 = SelectPlainValue(inputValue, outputValue) + (k2 + tableValue) * 33 + 3
-
-                    Return controller.Sequence(CUInt(outputValue).Bytes(ByteOrder.LittleEndian))
-                End Function)
-        End Function
+        Public Sub Write(ByVal data As IReadableList(Of Byte)) Implements IWritableStream.Write
+            _substream.Write((From b In data Select _engine.EncryptNext(b)).ToReadableList)
+        End Sub
+        Public Sub Flush() Implements IWritableStream.Flush
+            _substream.Flush()
+        End Sub
+        Public Sub Dispose() Implements IDisposable.Dispose
+            _substream.Dispose()
+        End Sub
     End Class
 End Namespace

@@ -16,21 +16,6 @@
 
     Public Module ExtensionsForIConverter
         <Extension()> <Pure()>
-        Public Function ConvertUsing(Of TIn, TOut)(ByVal sequence As IEnumerable(Of TIn),
-                                                   ByVal converter As IConverter(Of TIn, TOut)) As IEnumerable(Of TOut)
-            Contract.Requires(sequence IsNot Nothing)
-            Contract.Requires(converter IsNot Nothing)
-            Contract.Ensures(Contract.Result(Of IEnumerable(Of TOut))() IsNot Nothing)
-            Return sequence.Transform(AddressOf converter.Convert)
-        End Function
-
-        <Extension()> <Pure()>
-        Public Function AsStream(ByVal enumerable As IEnumerable(Of Byte)) As IReadableStream
-            Contract.Requires(enumerable IsNot Nothing)
-            Contract.Ensures(Contract.Result(Of IReadableStream)() IsNot Nothing)
-            Return enumerable.GetEnumerator.AsStream
-        End Function
-        <Extension()> <Pure()>
         Public Function AsStream(ByVal enumerator As IEnumerator(Of Byte)) As IReadableStream
             Contract.Requires(enumerator IsNot Nothing)
             Contract.Ensures(Contract.Result(Of IReadableStream)() IsNot Nothing)
@@ -49,39 +34,11 @@
         End Function
 
         <Extension()> <Pure()>
-        Public Function AsWritePushEnumerator(Of T)(ByVal stream As IWritableStream,
-                                                    ByVal converter As IConverter(Of T, Byte)) As PushEnumerator(Of T)
-            Contract.Requires(converter IsNot Nothing)
-            Contract.Requires(stream IsNot Nothing)
-            Contract.Ensures(Contract.Result(Of PushEnumerator(Of T))() IsNot Nothing)
-            Return New PushEnumerator(Of T)(Sub(sequenceT)
-                                                Dim sequence = converter.Convert(sequenceT)
-                                                While sequence.MoveNext
-                                                    stream.Write({sequence.Current}.ToReadableList)
-                                                End While
-                                            End Sub,
-                                            AddressOf stream.Dispose)
-        End Function
-        <Extension()> <Pure()>
-        Public Function AsStream(ByVal enumerator As PushEnumerator(Of Byte)) As IWritableStream
-            Contract.Requires(enumerator IsNot Nothing)
-            Contract.Ensures(Contract.Result(Of IWritableStream)() IsNot Nothing)
-            Return New PushEnumeratorStream(enumerator)
-        End Function
-
-        <Extension()> <Pure()>
         Public Function ConvertUsing(ByVal stream As IReadableStream, ByVal converter As IConverter(Of Byte, Byte)) As IReadableStream
             Contract.Requires(stream IsNot Nothing)
             Contract.Requires(converter IsNot Nothing)
             Contract.Ensures(Contract.Result(Of IReadableStream)() IsNot Nothing)
             Return converter.Convert(stream.AsEnumerator).AsStream
-        End Function
-        <Extension()> <Pure()>
-        Public Function ConvertUsing(ByVal stream As IWritableStream, ByVal converter As IConverter(Of Byte, Byte)) As IWritableStream
-            Contract.Requires(converter IsNot Nothing)
-            Contract.Requires(stream IsNot Nothing)
-            Contract.Ensures(Contract.Result(Of IWritableStream)() IsNot Nothing)
-            Return stream.AsWritePushEnumerator(converter).AsStream
         End Function
 
         <Extension()>
@@ -121,35 +78,5 @@
             _sequence.Dispose()
             Return Nothing
         End Function
-    End Class
-
-    Friend NotInheritable Class PushEnumeratorStream
-        Inherits FutureDisposable
-        Implements IWritableStream
-        Private ReadOnly _pusher As PushEnumerator(Of Byte)
-
-        <ContractInvariantMethod()> Private Sub ObjectInvariant()
-            Contract.Invariant(_pusher IsNot Nothing)
-        End Sub
-
-        Public Sub New(ByVal pusher As PushEnumerator(Of Byte))
-            Contract.Requires(pusher IsNot Nothing)
-            Me._pusher = pusher
-        End Sub
-
-        Public Sub Write(ByVal data As IReadableList(Of Byte)) Implements IWritableStream.Write
-            If FutureDisposed.State <> FutureState.Unknown Then Throw New ObjectDisposedException(Me.GetType.Name)
-            _pusher.Push(data.GetEnumerator)
-        End Sub
-
-        Protected Overrides Function PerformDispose(ByVal finalizing As Boolean) As IFuture
-            If finalizing Then Return Nothing
-            _pusher.PushDone()
-            _pusher.Dispose()
-            Return Nothing
-        End Function
-
-        Public Sub Flush() Implements IWritableStream.Flush
-        End Sub
     End Class
 End Namespace
