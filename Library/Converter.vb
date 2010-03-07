@@ -51,7 +51,7 @@
 
     '''<summary>Exposes an IEnumerator as a read-only stream.</summary>
     Friend NotInheritable Class EnumeratorStream
-        Inherits FutureDisposable
+        Inherits DisposableWithTask
         Implements IReadableStream
         Private ReadOnly _sequence As IEnumerator(Of Byte)
 
@@ -65,7 +65,7 @@
         End Sub
 
         Public Function Read(ByVal maxCount As Integer) As IReadableList(Of Byte) Implements IReadableStream.Read
-            If FutureDisposed.State <> FutureState.Unknown Then Throw New ObjectDisposedException(Me.GetType.Name)
+            If Me.IsDisposed Then Throw New ObjectDisposedException(Me.GetType.Name)
             Dim result = New List(Of Byte)
             While result.Count < maxCount AndAlso _sequence.MoveNext
                 result.Add(_sequence.Current)
@@ -73,7 +73,7 @@
             Return result.AsReadableList
         End Function
 
-        Protected Overrides Function PerformDispose(ByVal finalizing As Boolean) As IFuture
+        Protected Overrides Function PerformDispose(ByVal finalizing As Boolean) As Threading.Tasks.Task
             If finalizing Then Return Nothing
             _sequence.Dispose()
             Return Nothing
