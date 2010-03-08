@@ -46,7 +46,7 @@ Namespace Cryptography
 
             While table(pos) = 0 '[every value in the table will have been initialized when this condition is no longer met]
                 For word = 1 To 2
-                    k = CUInt(k * 125 + 3) Mod 2796203UI
+                    k = (k * 125 + 3).UnsignedValue Mod 2796203UI
                     table(pos) <<= 16 '[don't overwrite value from first iteration]
                     table(pos) = table(pos) Or (k And &HFFFF)
                 Next word
@@ -70,7 +70,7 @@ Namespace Cryptography
             Dim k1 As ModInt32 = &H7FED7FED
             Dim k2 As ModInt32 = &HEEEEEEEE
             Dim T = cryptTable(hashType)
-            For Each b In (From c In fileName.ToUpperInvariant Select CByte(Asc(c)))
+            For Each b In (From c In fileName.ToUpperInvariant Select Asc(c))
                 k1 = (k1 + k2) Xor T(b)
                 k2 = b + k1 + k2 * 33 + 3
             Next b
@@ -81,7 +81,8 @@ Namespace Cryptography
         <Pure()>
         Public Function HashFileName(ByVal fileName As String) As UInt64
             Contract.Requires(fileName IsNot Nothing)
-            Return CULng(HashString(fileName, CryptTableIndex.NameHashLow)) Or CULng(HashString(fileName, CryptTableIndex.NameHashHigh)) << 32
+            Return CULng(HashString(fileName, CryptTableIndex.NameHashLow).UnsignedValue) Or
+                   CULng(HashString(fileName, CryptTableIndex.NameHashHigh).UnsignedValue) << 32
         End Function
 
         '''<summary>Computes the decryption key of a file with known fileName</summary>
@@ -130,8 +131,8 @@ Namespace Cryptography
 
             'Brute force value of k1 by trying all possible values of (k1 & 0xFF)
             Dim haveMin = False
-            Dim minKey As ModInt32
-            Dim minVal As ModInt32
+            Dim minKey As UInt32
+            Dim minVal As UInt32
             For possibleValue = 0 To &HFF
                 Dim k1 = n - T(possibleValue)
                 If (k1 And &HFF) <> possibleValue Then Continue For 'doesn't satisfy basic constraint
@@ -145,8 +146,8 @@ Namespace Cryptography
                         If reader.ReadUInt32() <> targetValue1 Then Continue For 'doesn't match plaintext
                         'keep track of key with lowest second value [lower values are more likely plaintexts]
                         Dim u = reader.ReadUInt32()
-                        If Not haveMin OrElse CUInt(u) < CUInt(minVal) Then
-                            minKey = k1
+                        If Not haveMin OrElse CUInt(u) < minVal Then
+                            minKey = k1.UnsignedValue
                             minVal = u
                             haveMin = True
                         End If

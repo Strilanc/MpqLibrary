@@ -131,7 +131,7 @@ Friend Class FileReader
                 For blockIndex = 0 To chunkOffsetTable.Length - 1
                     chunkOffsetTable(blockIndex) = curChunkStream.ReadUInt32()
                     If mightBePastFile Then
-                        If CUInt(archivePosition + block.Offset + chunkOffsetTable(blockIndex)) > baseStream.Length Then
+                        If (archivePosition + block.Offset + chunkOffsetTable(blockIndex)).UnsignedValue > baseStream.Length Then
                             Throw New IO.InvalidDataException("File passes the end of MPQ Archive")
                         End If
                     End If
@@ -153,7 +153,7 @@ Friend Class FileReader
         Else
             blockOffset = blockIndex * chunkSize
         End If
-        baseStream.Position = archivePosition + block.Offset + blockOffset
+        baseStream.Position = (archivePosition + block.Offset + blockOffset).UnsignedValue
         curChunkStream = baseStream
         numBlockBytesLeft = Math.Min(chunkSize, CUInt(Length - Position))
 

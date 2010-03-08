@@ -24,7 +24,7 @@ Namespace Cryptography
             PrepMask()
         End Sub
         Private Sub PrepMask()
-            _mask = _k1 + _k2 + Table(_k1 And &HFF)
+            _mask = (_k1 + _k2 + Table((_k1 And &HFF).SignedValue)).UnsignedValue
             _usedBitCount = 0
             _curPlainValue = 0
         End Sub
@@ -46,7 +46,7 @@ Namespace Cryptography
             _usedBitCount += CByte(8)
 
             If _usedBitCount = 32 Then
-                _k2 = _curPlainValue + (_k2 + Table(_k1 And &HFF)) * 33 + 3
+                _k2 = _curPlainValue + (_k2 + Table((_k1 And &HFF).SignedValue)) * 33 + 3
                 _k1 = (_k1 >> 11) Or (((Not _k1) << 21) + &H11111111) '[vulnerability: causes k1 to lose entropy via bits being forced set]
                 PrepMask()
             End If

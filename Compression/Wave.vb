@@ -58,7 +58,7 @@ Namespace Compression
             For i = 0 To _numChannels - 1
                 _stepIndex(i) = &H2C
                 _prediction(i) = _subStream.ReadByte
-                _outBitBuffer.QueueUInt16(CType(CShort(_prediction(i)), ModInt16))
+                _outBitBuffer.QueueUInt16(CType(CShort(_prediction(i)), ModInt16).UnsignedValue)
             Next i
         End Sub
 
@@ -118,7 +118,7 @@ Namespace Compression
                 _stepIndex(channel) = _stepIndex(channel).Between(0, stepSizeTable.Length - 1)
 
                 'output prediction
-                _outBitBuffer.QueueUInt16(CType(CShort(_prediction(channel)), ModInt16))
+                _outBitBuffer.QueueUInt16(CType(CShort(_prediction(channel)), ModInt16).UnsignedValue)
             Loop
 
             Return result.AsReadableList

@@ -67,7 +67,7 @@ Public Class Hashtable
         Contract.Requires(fileName IsNot Nothing)
 
         Dim nameKey = HashFileName(fileName)
-        Dim offset = CInt(CUInt(HashString(fileName, CryptTableIndex.PositionHash)) Mod CUInt(_hashes.Count))
+        Dim offset = CInt(HashString(fileName, CryptTableIndex.PositionHash).UnsignedValue Mod CUInt(_hashes.Count))
         Dim firstEmptyEntry As HashEntry = Nothing
         For i = 0 To _hashes.Count - 1
             Dim curEntry = _hashes((i + offset) Mod _hashes.Count)
