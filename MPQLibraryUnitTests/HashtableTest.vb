@@ -1,5 +1,4 @@
 ﻿Imports Strilbrary.Streams
-Imports MPQ.Library
 Imports Microsoft.VisualStudio.TestTools.UnitTesting
 Imports MPQ.Cryptography
 
@@ -7,7 +6,7 @@ Imports MPQ.Cryptography
 Public Class HashtableTest
     Private Shared Function BuildTestHashtableData() As IRandomReadableStream
         Dim input = New IO.MemoryStream().AsRandomAccessStream
-        Dim inputCypher = New EncypherStream(input, HashString("(hash table)", CryptTableIndex.CypherKeyHash))
+        Dim inputCypher = New EncipherStream(input, HashString("(hash table)", CryptTableIndex.CipherKeyHash))
 
         inputCypher.Write(CULng(Long.MaxValue))
         inputCypher.Write(MPQ.LanguageId.English)

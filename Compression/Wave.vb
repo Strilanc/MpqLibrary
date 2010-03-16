@@ -1,5 +1,3 @@
-Imports MPQ.Library
-
 Namespace Compression
     Friend Module WaveData 'ADPCM
         Friend ReadOnly stepIndexDeltaTable() As Integer = {
@@ -52,6 +50,7 @@ Namespace Compression
             Me._subStream = subStream
             Init()
         End Sub
+        <ContractVerification(False)>
         Private Sub Init()
             _subStream.ReadByte()
             _stepShift = _subStream.ReadByte
@@ -62,6 +61,7 @@ Namespace Compression
             Next i
         End Sub
 
+        <ContractVerification(False)>
         Public Function Read(ByVal maxCount As Int32) As IReadableList(Of Byte) Implements IReadableStream.Read
             Dim result = New List(Of Byte)(capacity:=maxCount)
 

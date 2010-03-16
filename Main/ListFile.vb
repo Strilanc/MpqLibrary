@@ -1,75 +1,77 @@
-﻿''' <summary>A rainbow table mapping mpq fileName hashes to fileNames.</summary>
+﻿''' <summary>A rainbow table mapping mpq hashes to strings.</summary>
 Public Class ListFile
-    Private ReadOnly map As New Dictionary(Of UInt64, String)
+    Private ReadOnly _map As New Dictionary(Of UInt64, InvariantString)
 
     Public Sub New()
     End Sub
-    Public Sub New(ByVal fileNames As IEnumerable(Of String))
-        Contract.Requires(filenames IsNot Nothing)
-        For Each item In fileNames
-            Contract.Assume(item IsNot Nothing)
+    Public Sub New(ByVal initialPaths As IEnumerable(Of InvariantString))
+        Contract.Requires(initialPaths IsNot Nothing)
+        For Each item In initialPaths
             Include(item)
         Next item
     End Sub
 
-    '''<summary>Determines if the given fileName s included.</summary>
-    Public ReadOnly Property Contains(ByVal fileName As String) As Boolean
+    <ContractInvariantMethod()> Private Sub ObjectInvariant()
+        Contract.Invariant(_map IsNot Nothing)
+    End Sub
+
+    '''<summary>Determines if the given string is included.</summary>
+    Public ReadOnly Property Contains(ByVal path As String) As Boolean
         Get
-            Contract.Requires(fileName IsNot Nothing)
-            Return map.ContainsKey(Cryptography.HashFileName(fileName))
+            Contract.Requires(path IsNot Nothing)
+            Return _map.ContainsKey(Cryptography.HashFileName(path))
         End Get
     End Property
-    '''<summary>Determines if the given hash belongs to an included fileName.</summary>
+    '''<summary>Determines if the given hash belongs to an included string.</summary>
     Public ReadOnly Property Contains(ByVal hash As UInt64) As Boolean
         Get
-            Return map.ContainsKey(hash)
+            Return _map.ContainsKey(hash)
         End Get
     End Property
 
-    '''<summary>Determines the included fileName for the given hash.</summary>
-    Default Public ReadOnly Property FileName(ByVal hash As UInt64) As String
+    '''<summary>Reverses the given incuded hash.</summary>
+    Default Public ReadOnly Property ValueOf(ByVal hash As UInt64) As InvariantString
         Get
             Contract.Requires(Me.Contains(hash))
-            Contract.Ensures(Contract.Result(Of String)() IsNot Nothing)
-            Contract.Assume(map(hash) IsNot Nothing)
-            Return map(hash)
-        End Get
-    End Property
-    '''<summary>Determines the included fileName for the given hash, or returns null if there is no matching fileName.</summary>
-    <Pure()>
-    Public Function TryGetFileName(ByVal hash As UInt64) As String
-        Contract.Ensures((Contract.Result(Of String)() IsNot Nothing) = (Me.Contains(hash)))
-        If Not Me.Contains(hash) Then Return Nothing
-        Return Filename(hash)
-    End Function
-    '''<summary>Enumerates the included fileNames.</summary>
-    Public ReadOnly Property FileNames() As IEnumerable(Of String)
-        Get
-            Return map.Values
-        End Get
-    End Property
-    '''<summary>Returns the number of included fileNames.</summary>
-    Public ReadOnly Property Size As Integer
-        Get
-            Contract.Ensures(Contract.Result(Of Integer)() >= 0)
-            Return map.Count
+            Return _map(hash)
         End Get
     End Property
 
-    '''<summary>Ensures a fileName is included.</summary>
-    Public Sub Include(ByVal fileName As String)
-        Contract.Requires(fileName IsNot Nothing)
-        map(Cryptography.HashFileName(fileName)) = fileName
+    '''<summary>Reverses the given hash, or returns null if the hash is not included.</summary>
+    <Pure()>
+    <ContractVerification(False)>
+    Public Function TryGetValueOf(ByVal hash As UInt64) As InvariantString?
+        Contract.Ensures(Contract.Result(Of InvariantString?)().HasValue = Me.Contains(hash))
+        If Not Me.Contains(hash) Then Return Nothing
+        Return ValueOf(hash)
+    End Function
+    '''<summary>Enumerates the included strings.</summary>
+    Public ReadOnly Property IncludedStrings() As IEnumerable(Of InvariantString)
+        Get
+            Return _map.Values
+        End Get
+    End Property
+    '''<summary>Returns the number of included strings.</summary>
+    Public ReadOnly Property Count As Integer
+        Get
+            Contract.Ensures(Contract.Result(Of Integer)() >= 0)
+            Return _map.Count
+        End Get
+    End Property
+
+    '''<summary>Ensures a string is included.</summary>
+    Public Sub Include(ByVal path As InvariantString)
+        _map(Cryptography.HashFileName(path)) = path
     End Sub
-    '''<summary>Ensures a sequence of fileNames are included.</summary>
-    Public Sub IncludeRange(ByVal fileNames As IEnumerable(Of String))
-        Contract.Requires(filenames IsNot Nothing)
-        For Each item In fileNames
-            Contract.Assume(item IsNot Nothing)
+    '''<summary>Ensures strings from a sequence are included.</summary>
+    Public Sub IncludeRange(ByVal paths As IEnumerable(Of InvariantString))
+        Contract.Requires(paths IsNot Nothing)
+        For Each item In paths
             Me.Include(item)
         Next item
     End Sub
     '''<summary>Ensures files mentioned in an archive's listfile are included.</summary>
+    <ContractVerification(False)>
     Public Sub IncludeArchiveListFile(ByVal archive As Archive)
         Contract.Requires(archive IsNot Nothing)
         Using reader = New IO.StreamReader(archive.OpenFileByName("(listfile)").AsStream)

@@ -24,16 +24,14 @@
 ''''Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 ''''</copyright>
 
-Imports MPQ.Library
-
 Namespace Cryptography
-    Public Module Cryptography
+    Public Module CryptoCommon
         Public Enum CryptTableIndex As Integer
             PositionHash = 0
             NameHashLow = 1
             NameHashHigh = 2
-            CypherKeyHash = 3
-            CypherTable = 4
+            CipherKeyHash = 3
+            CipherTable = 4
         End Enum
         Friend ReadOnly cryptTable As Dictionary(Of CryptTableIndex, ModInt32()) = ComputeCryptTable()
 
@@ -66,11 +64,12 @@ Namespace Cryptography
 
         '''<summary>Hashes a string into a key</summary>
         <Pure()>
-        Public Function HashString(ByVal fileName As String, ByVal hashType As CryptTableIndex) As ModInt32
+        Public Function HashString(ByVal value As InvariantString, ByVal hashType As CryptTableIndex) As ModInt32
             Dim k1 As ModInt32 = &H7FED7FED
             Dim k2 As ModInt32 = &HEEEEEEEE
             Dim T = cryptTable(hashType)
-            For Each b In (From c In fileName.ToUpperInvariant Select Asc(c))
+            Contract.Assume(T IsNot Nothing)
+            For Each b In (From c In value.Value.ToUpperInvariant Select Asc(c))
                 k1 = (k1 + k2) Xor T(b)
                 k2 = b + k1 + k2 * 33 + 3
             Next b
@@ -79,18 +78,19 @@ Namespace Cryptography
 
         '''<summary>Computes the 'hash name' of a file.</summary>
         <Pure()>
-        Public Function HashFileName(ByVal fileName As String) As UInt64
-            Contract.Requires(fileName IsNot Nothing)
-            Return CULng(HashString(fileName, CryptTableIndex.NameHashLow).UnsignedValue) Or
-                   CULng(HashString(fileName, CryptTableIndex.NameHashHigh).UnsignedValue) << 32
+        Public Function HashFileName(ByVal archiveFileName As InvariantString) As UInt64
+            Return CULng(HashString(archiveFileName, CryptTableIndex.NameHashLow).UnsignedValue) Or
+                   CULng(HashString(archiveFileName, CryptTableIndex.NameHashHigh).UnsignedValue) << 32
         End Function
 
         '''<summary>Computes the decryption key of a file with known fileName</summary>
         <Extension()> <Pure()>
         Public Function GetFileDecryptionKey(ByVal block As Block,
-                                             ByVal fileName As String) As ModInt32
-            Contract.Requires(fileName IsNot Nothing)
-            Dim key = HashString(fileName.Split("\"c).Last, CryptTableIndex.CypherKeyHash)
+                                             ByVal archiveFilePath As InvariantString) As ModInt32
+            Contract.Requires(block IsNot Nothing)
+            Dim archiveFileName = archiveFilePath.Value.Split("\"c).Last
+            Contract.Assume(archiveFileName IsNot Nothing)
+            Dim key = HashString(archiveFileName, CryptTableIndex.CipherKeyHash)
 
             'adjusted keys are offset by the file position
             If (block.Properties And BlockProperties.AdjustedKey) <> 0 Then
@@ -117,16 +117,18 @@ Namespace Cryptography
         '''   Notice the right side has only 256 possible values because seed1 is AND-ed with 0xFF
         '''   Brute force seed1 by trying every possible value of (seed1 and 0xHFF) in the right side
         '''</remarks>
-        Public Function BreakFileDecryptionKey(ByVal cypherValue1 As UInt32,
-                                               ByVal cyphervalue2 As UInt32,
-                                               ByVal targetValue1 As UInt32) As ModInt32
+        <ContractVerification(False)>
+        Public Function BreakFileDecryptionKey(ByVal encryptedValue1 As UInt32,
+                                               ByVal encryptedValue2 As UInt32,
+                                               ByVal plainValue1 As UInt32) As ModInt32
             'Prep
-            Dim T = cryptTable(CryptTableIndex.CypherTable)
-            Dim e1 As ModInt32 = cypherValue1
-            Dim e2 As ModInt32 = cyphervalue2
+            Dim T = cryptTable(CryptTableIndex.CipherTable)
+            Contract.Assume(T IsNot Nothing)
+            Dim e1 As ModInt32 = encryptedValue1
+            Dim e2 As ModInt32 = encryptedValue2
             'Initial values
             Dim k2 As ModInt32 = &HEEEEEEEE
-            Dim s = e1 Xor targetValue1 'undo xor
+            Dim s = e1 Xor plainValue1 'undo xor
             Dim n = s - k2 'undo addition
 
             'Brute force value of k1 by trying all possible values of (k1 & 0xFF)
@@ -138,12 +140,12 @@ Namespace Cryptography
                 If (k1 And &HFF) <> possibleValue Then Continue For 'doesn't satisfy basic constraint
 
                 Using testStream = New IO.MemoryStream(capacity:=8).AsRandomAccessStream
-                    testStream.Write(cypherValue1)
-                    testStream.Write(cyphervalue2)
+                    testStream.Write(encryptedValue1)
+                    testStream.Write(encryptedValue2)
                     testStream.Position = 0
-                    Using reader = New DecypherStream(testStream, k1)
+                    Using reader = New DecipherStream(testStream, k1)
                         'check decryption for correctness
-                        If reader.ReadUInt32() <> targetValue1 Then Continue For 'doesn't match plaintext
+                        If reader.ReadUInt32() <> plainValue1 Then Continue For 'doesn't match plaintext
                         'keep track of key with lowest second value [lower values are more likely plaintexts]
                         Dim u = reader.ReadUInt32()
                         If Not haveMin OrElse CUInt(u) < minVal Then

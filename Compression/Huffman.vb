@@ -1,46 +1,103 @@
-Imports MPQ.Library
-
 Namespace Compression
-    Friend Class HuffmanDecompressor
-        Implements IConverter(Of Byte, Byte)
-        Public Function Convert(ByVal sequence As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte, Byte).Convert
-            Dim treeIndex = sequence.MoveNextAndReturn()
+    Friend Class HuffmanDecompressionStream
+        Inherits DisposableWithTask
+        Implements IReadableStream
+
+        Private ReadOnly _buf As New BitBuffer()
+        Private ReadOnly _tree As HuffmanTree
+        Private ReadOnly _subStream As IReadableStream
+        Private ReadOnly _isZeroTree As Boolean
+        Private _finished As Boolean
+
+        <ContractInvariantMethod()> Private Sub ObjectInvariant()
+            Contract.Invariant(_buf IsNot Nothing)
+            Contract.Invariant(_tree IsNot Nothing)
+            Contract.Invariant(_subStream IsNot Nothing)
+        End Sub
+
+        Public Sub New(ByVal subStream As IReadableStream,
+                       ByVal tree As HuffmanTree,
+                       ByVal isZeroTree As Boolean)
+            Contract.Requires(subStream IsNot Nothing)
+            Contract.Requires(tree IsNot Nothing)
+            Me._subStream = subStream
+            Me._tree = tree
+            Me._isZeroTree = isZeroTree
+        End Sub
+        Public Shared Function FromSubStream(ByVal subStream As IReadableStream) As HuffmanDecompressionStream
+            Contract.Requires(subStream IsNot Nothing)
+            Contract.Ensures(Contract.Result(Of HuffmanDecompressionStream)() IsNot Nothing)
+
+            Dim treeIndex = subStream.ReadByte()
             If treeIndex >= frequencyTables.Length Then Throw New IO.InvalidDataException("Invalid huffman tree index.")
-            Dim tree = New HuffmanTree(frequencyTables(treeIndex))
+            Dim table = frequencyTables(treeIndex)
+            Contract.Assume(table IsNot Nothing)
+            Contract.Assume(table.Length < 256)
+            Dim tree = New HuffmanTree(table)
 
-            Return New Enumerator(Of Byte)(
-                Function(controller)
-                    Contract.Requires(controller IsNot Nothing)
-                    Contract.Assume(controller IsNot Nothing)
-                    Contract.Assume(sequence IsNot Nothing)
+            Return New HuffmanDecompressionStream(subStream:=subStream,
+                                                  tree:=tree,
+                                                  isZeroTree:=treeIndex = 0)
+        End Function
 
-                    'Fall to a leaf
-                    Dim buf = New BitBuffer()
-                    Contract.Assume(tree.nodes.Count > 0)
-                    Dim curNode = tree.nodes(0)  'root
-                    Do While curNode.type = HuffmanNodeType.Internal
-                        If buf.BitCount <= 0 Then buf.QueueByte(sequence.MoveNextAndReturn())
-                        curNode = If(buf.TakeBit(), curNode.rightChild, curNode.leftChild)
-                    Loop
+        Private Function ReadNextLeaf() As HuffmanNode
+            Contract.Requires(Not _finished)
+            Contract.Ensures(Contract.Result(Of HuffmanNode)() IsNot Nothing)
 
-                    'Interpret the leaf
-                    Select Case curNode.type
-                        Case HuffmanNodeType.EndOfStream
-                            Return controller.Break()
-                        Case HuffmanNodeType.NewValue
-                            buf.QueueByte(sequence.MoveNextAndReturn())
-                            Dim newValue = buf.TakeByte()
-                            tree.Increase(newValue)
-                            If treeIndex <> 0 Then tree.Increase(newValue)
-                            Return newValue
-                        Case HuffmanNodeType.Value
-                            If treeIndex = 0 Then tree.Increase(curNode.value)
-                            Return CByte(curNode.value)
-                        Case Else
-                            Throw curNode.type.MakeImpossibleValueException()
-                    End Select
-                End Function
-            )
+            'Start at root
+            Contract.Assume(_tree.nodes IsNot Nothing)
+            Contract.Assume(_tree.nodes.Count > 0)
+            Dim cur = _tree.nodes(0).Value
+            'Fall based on the next bit, until at a leaf
+            While cur.type = HuffmanNodeType.Internal
+                If _buf.BitCount <= 0 Then _buf.QueueByte(_subStream.ReadByte)
+                cur = If(_buf.TakeBit(), cur.rightChild, cur.leftChild)
+                Contract.Assume(cur IsNot Nothing)
+            End While
+            Return cur
+        End Function
+
+        Public Function TryReadByte() As Byte?
+            If _finished Then Return Nothing
+
+            'Interpret the next leaf
+            Dim leaf = ReadNextLeaf()
+            Select Case leaf.type
+                Case HuffmanNodeType.EndOfStream
+                    _finished = True
+                    Return Nothing
+
+                Case HuffmanNodeType.NewValue
+                    _buf.QueueByte(_subStream.ReadByte)
+                    Dim newValue = _buf.TakeByte()
+                    _tree.Increase(newValue)
+                    If Not _isZeroTree Then _tree.Increase(newValue)
+                    Return newValue
+
+                Case HuffmanNodeType.Value
+                    If _isZeroTree Then _tree.Increase(leaf.value)
+                    Return leaf.value
+
+                Case Else
+                    Throw leaf.type.MakeImpossibleValueException()
+            End Select
+        End Function
+
+        Public Function Read(ByVal maxCount As Integer) As IReadableList(Of Byte) Implements IReadableStream.Read
+            Dim result = New List(Of Byte)(capacity:=maxCount)
+            For i = 0 To maxCount - 1
+                Dim v = TryReadByte()
+                If Not v.HasValue Then Exit For
+                result.Add(v.Value)
+            Next i
+            Contract.Assume(result.Count <= maxCount)
+            Return result.AsReadableList
+        End Function
+
+        Protected Overrides Function PerformDispose(ByVal finalizing As Boolean) As System.Threading.Tasks.Task
+            If finalizing Then Return Nothing
+            _subStream.Dispose()
+            Return Nothing
         End Function
     End Class
 
@@ -60,6 +117,7 @@ Namespace Compression
 
         Public Sub New(ByVal type As HuffmanNodeType, ByVal freq As UInteger)
             Me.type = type
+            Me.freq = freq
         End Sub
         Public Sub New(ByVal value As Byte, ByVal freq As UInteger)
             Me.value = value
@@ -67,6 +125,8 @@ Namespace Compression
             Me.type = HuffmanNodeType.Value
         End Sub
         Public Sub New(ByVal leftChild As HuffmanNode, ByVal rightChild As HuffmanNode)
+            Contract.Requires(leftChild IsNot Nothing)
+            Contract.Requires(rightChild IsNot Nothing)
             Me.leftChild = leftChild
             Me.rightChild = rightChild
             Me.leftChild.parent = Me
@@ -78,8 +138,14 @@ Namespace Compression
 
     '''<summary>A binary tree with the property that the sum over the leafs of depth*frequency is minimized</summary>
     Friend Class HuffmanTree
-        Public ReadOnly nodes As New List(Of HuffmanNode) 'sorted list of the nodes in the tree
-        Public leafMap As New Dictionary(Of Integer, HuffmanNode) 'takes a value and gives the leaf containing that value
+        Public ReadOnly nodes As New List(Of NonNull(Of HuffmanNode)) 'sorted list of the nodes in the tree
+        Public ReadOnly leafMap As New Dictionary(Of Integer, NonNull(Of HuffmanNode)) 'takes a value and gives the leaf containing that value
+
+        <ContractInvariantMethod()> Private Sub ObjectInvariant()
+            Contract.Invariant(nodes IsNot Nothing)
+            Contract.Invariant(nodes.Count > 0)
+            Contract.Invariant(leafMap IsNot Nothing)
+        End Sub
 
         '''<summary>Constructs the initial tree using the given frequency table</summary>
         Public Sub New(ByVal freqTable As UInteger())
@@ -88,24 +154,27 @@ Namespace Compression
             'leafs
             For i = 0 To freqTable.Length - 1
                 If freqTable(i) > 0 Then
-                    insert(New HuffmanNode(CByte(i), freqTable(i)))
+                    Insert(New HuffmanNode(CByte(i), freqTable(i)))
                 End If
             Next i
             'special leafs
-            insert(New HuffmanNode(HuffmanNodeType.EndOfStream, 1))
-            insert(New HuffmanNode(HuffmanNodeType.NewValue, 1))
+            Insert(New HuffmanNode(HuffmanNodeType.EndOfStream, 1))
+            Insert(New HuffmanNode(HuffmanNodeType.NewValue, 1))
             'tree
             For i = nodes.Count - 1 To 1 Step -1
-                insert(New HuffmanNode(nodes(i), nodes(i - 1)))
+                Insert(New HuffmanNode(nodes(i), nodes(i - 1)))
             Next i 'decrementing by 1 is enough because the new node shifted the list
         End Sub
 
         '''<summary>Adds the node to the sorted list of nodes, and adds leafs to the value map</summary>
-        Private Sub insert(ByVal n As HuffmanNode)
+        Private Sub Insert(ByVal n As HuffmanNode)
+            Contract.Requires(n IsNot Nothing)
+            Contract.Ensures(nodes.Count > 0)
             If n.value <> -1 Then leafMap(n.value) = n
             For i = 0 To nodes.Count - 1
-                If n.freq > nodes(i).freq Then
+                If n.freq > nodes(i).Value.freq Then
                     nodes.Insert(i, n)
+                    Contract.Assume(nodes.Count > 0)
                     Return
                 End If
             Next i
@@ -122,8 +191,9 @@ Namespace Compression
                 '[this transformation maintains the optimality of the tree]
                 n = New HuffmanNode(val, 0)
                 leafMap(val) = n
-                Dim sibling = nodes(nodes.Count - 1)
+                Dim sibling = nodes(nodes.Count - 1).Value
                 Dim grandparent = sibling.parent
+                Contract.Assume(grandparent IsNot Nothing)
                 Dim parent = New HuffmanNode(n, sibling)
                 parent.parent = grandparent
                 If grandparent.rightChild Is sibling Then grandparent.rightChild = parent Else grandparent.leftChild = parent
@@ -140,14 +210,13 @@ Namespace Compression
                 n.freq += 1UI
                 'find the new position the node must occupy in the ordered list
                 Dim i = nodes.IndexOf(n) - 1
-                While i >= 0 AndAlso nodes(i).freq < n.freq
+                While i >= 0 AndAlso nodes(i).Value.freq < n.freq
                     i -= 1
                 End While
                 i += 1
                 'if the node has to change positions, we need to update the tree and the list
                 Contract.Assume(i >= 0)
-                Contract.Assume(i < nodes.Count)
-                Dim m = nodes(i)
+                Dim m = nodes(i).Value
                 If m IsNot n Then
                     'switch places in list
                     nodes(nodes.IndexOf(n)) = m
@@ -156,6 +225,7 @@ Namespace Compression
                     '[note that m has the same frequency as n used to have, so m's new ancestors will not need to be updated]
                     Dim t As HuffmanNode
                     If m.parent Is n.parent Then
+                        Contract.Assume(m.parent IsNot Nothing)
                         t = m.parent.rightChild
                         m.parent.rightChild = m.parent.leftChild
                         m.parent.leftChild = t

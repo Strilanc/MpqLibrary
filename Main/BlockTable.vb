@@ -1,6 +1,4 @@
-﻿Imports MPQ.Library
-
-<Flags()>
+﻿<Flags()>
 Public Enum BlockProperties As UInteger
     Imploded = 1UI << 8
     Compressed = 1UI << 9
@@ -30,9 +28,11 @@ Public Class BlockTable
                                       ByVal position As UInt32,
                                       ByVal entryCount As UInt32) As BlockTable
         Contract.Requires(encryptedStream IsNot Nothing)
+        Contract.Requires(position < encryptedStream.Length)
+        Contract.Ensures(Contract.Result(Of BlockTable)() IsNot Nothing)
         encryptedStream.Position = position
 
-        Dim stream = New DecypherStream(encryptedStream, HashString("(block table)", CryptTableIndex.CypherKeyHash))
+        Dim stream = New DecipherStream(encryptedStream, HashString("(block table)", CryptTableIndex.CipherKeyHash))
         Dim blocks = New List(Of Block)
         For i = 0 To entryCount - 1
             Dim offset = stream.ReadUInt32

@@ -1,13 +1,12 @@
 ﻿Imports Strilbrary.Streams
 Imports Microsoft.VisualStudio.TestTools.UnitTesting
 Imports MPQ.Cryptography
-Imports MPQ.Library
 
 <TestClass()>
 Public Class BlockTableTest
     Private Shared Function BuildTestBlockTableData() As IRandomReadableStream
         Dim input = New IO.MemoryStream
-        Dim inputCypher = New EncypherStream(input.AsWritableStream, HashString("(block table)", CryptTableIndex.CypherKeyHash))
+        Dim inputCypher = New EncipherStream(input.AsWritableStream, HashString("(block table)", CryptTableIndex.CipherKeyHash))
 
         inputCypher.Write(1UI)
         inputCypher.Write(2UI)

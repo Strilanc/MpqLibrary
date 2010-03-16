@@ -1,6 +1,4 @@
-﻿Imports MPQ.Library
-
-'''<summary>
+﻿'''<summary>
 '''The hashtable from an MPQ archive.
 '''Each entry tells you a file index and the hash of the file's original name.
 '''The hashtable doesn't tell you a file's original name, only what it hashes to.
@@ -8,47 +6,49 @@
 Public Class Hashtable
     Private ReadOnly _hashes As IReadableList(Of HashEntry)
 
+    <ContractInvariantMethod()> Private Sub ObjectInvariant()
+        Contract.Invariant(_hashes IsNot Nothing)
+    End Sub
+
     Public Enum BlockIndex As UInteger
         NoFile = &HFFFFFFFFUI
         DeletedFile = &HFFFFFFFEL
     End Enum
 
-
-    <ContractInvariantMethod()> Private Sub ObjectInvariant()
-        Contract.Invariant(_hashes IsNot Nothing)
-    End Sub
-
     '''<summary>Reads the hashtable from an MPQ archive</summary>
-    Public Sub New(ByVal hashes As IReadableList(Of HashEntry))
+    Public Sub New(ByVal hashes As IEnumerable(Of HashEntry))
         Contract.Requires(hashes IsNot Nothing)
-        Me._hashes = hashes
+        Me._hashes = hashes.ToReadableList
     End Sub
 
     Public Shared Function FromStream(ByVal encryptedStream As IRandomReadableStream,
                                       ByVal position As UInt32,
-                                      ByVal hashTableSize As UInt32,
-                                      ByVal blockTableSize As UInt32) As Hashtable
+                                      ByVal hashtableEntryCount As UInt32,
+                                      ByVal blockTableEntryCount As UInt32) As Hashtable
         Contract.Requires(encryptedStream IsNot Nothing)
+        Contract.Requires(position < encryptedStream.Length)
+        Contract.Ensures(Contract.Result(Of Hashtable)() IsNot Nothing)
         encryptedStream.Position = position
 
-        Dim stream = New DecypherStream(encryptedStream, HashString("(hash table)", CryptTableIndex.CypherKeyHash))
-        Dim hashes = New List(Of HashEntry)
-        For repeat = 0 To hashTableSize - 1
-            Dim fileKey = stream.ReadUInt64()
-            Dim language = CType(stream.ReadUInt32(), LanguageId)
-            Dim blockIndex = CType(stream.ReadUInt32(), Hashtable.BlockIndex)
-            Dim invalid = blockIndex >= blockTableSize _
-                          AndAlso blockIndex <> Hashtable.BlockIndex.DeletedFile _
-                          AndAlso blockIndex <> Hashtable.BlockIndex.NoFile
-            hashes.Add(New HashEntry(fileKey, language, blockIndex, invalid))
-        Next repeat
+        Dim stream = New DecipherStream(encryptedStream, HashString("(hash table)", CryptTableIndex.CipherKeyHash))
+        Dim hashData = (From repeat In hashtableEntryCount.Range
+                        Let fileKey = stream.ReadUInt64()
+                        Let language = CType(stream.ReadUInt32(), LanguageId)
+                        Let blockIndex = CType(stream.ReadUInt32(), Hashtable.BlockIndex)
+                        Let invalid = blockIndex >= blockTableEntryCount AndAlso
+                                      blockIndex <> Hashtable.BlockIndex.DeletedFile AndAlso
+                                      blockIndex <> Hashtable.BlockIndex.NoFile
+                        ).Cache
 
-        Return New Hashtable(hashes.ToReadableList)
+        Return New Hashtable(From entry In hashData
+                             Select New HashEntry(entry.fileKey,
+                                                  entry.language,
+                                                  entry.blockIndex,
+                                                  entry.invalid))
     End Function
 
     Public ReadOnly Property Entries As IEnumerable(Of HashEntry)
         Get
-            Contract.Ensures(Contract.Result(Of IEnumerable(Of HashEntry))() IsNot Nothing)
             Return _hashes
         End Get
     End Property
@@ -63,21 +63,20 @@ Public Class Hashtable
     ''' Returns the hash entry containing the file.
     ''' If there is no such entry, returns the entry the file should be placed in.
     ''' </summary>
-    Private Function FindFileSlot(ByVal fileName As String) As HashEntry
-        Contract.Requires(fileName IsNot Nothing)
-
-        Dim nameKey = HashFileName(fileName)
-        Dim offset = CInt(HashString(fileName, CryptTableIndex.PositionHash).UnsignedValue Mod CUInt(_hashes.Count))
-        Dim firstEmptyEntry As HashEntry = Nothing
+    <ContractVerification(False)>
+    Private Function FindFileSlot(ByVal archiveFilePath As InvariantString) As HashEntry?
+        Dim nameKey = HashFileName(archiveFilePath)
+        Dim offset = CInt(HashString(archiveFilePath, CryptTableIndex.PositionHash).UnsignedValue Mod CUInt(_hashes.Count))
+        Dim firstEmptyEntry As HashEntry? = Nothing
         For i = 0 To _hashes.Count - 1
             Dim curEntry = _hashes((i + offset) Mod _hashes.Count)
             If Not curEntry.Exists Then
                 If firstEmptyEntry Is Nothing Then firstEmptyEntry = curEntry
-                If curEntry.blockIndex = BlockIndex.NoFile Then Exit For
-                If curEntry.blockIndex = BlockIndex.DeletedFile Then Continue For
+                If curEntry.BlockIndex = BlockIndex.NoFile Then Exit For
+                If curEntry.BlockIndex = BlockIndex.DeletedFile Then Continue For
             End If
 
-            If curEntry.Exists AndAlso curEntry.fileKey = nameKey Then
+            If curEntry.Exists AndAlso curEntry.FileKey = nameKey Then
                 If curEntry.Invalid Then
                     Throw New IO.InvalidDataException("File name points to invalid hash table entry.")
                 End If
@@ -87,26 +86,24 @@ Public Class Hashtable
         Return firstEmptyEntry
     End Function
 
-    Default Public ReadOnly Property Entry(ByVal fileName As String) As HashEntry
+    <ContractVerification(False)>
+    Default Public ReadOnly Property Entry(ByVal archiveFilePath As InvariantString) As HashEntry
         Get
-            Contract.Requires(fileName IsNot Nothing)
-            Contract.Requires(Contains(fileName))
-            Contract.Ensures(Contract.Result(Of HashEntry)() IsNot Nothing)
-            Return FindFileSlot(fileName)
+            Contract.Requires(Contains(archiveFilePath))
+            Return FindFileSlot(archiveFilePath).Value
         End Get
     End Property
 
-    Public ReadOnly Property Contains(ByVal fileName As String) As Boolean
+    Public ReadOnly Property Contains(ByVal archiveFilePath As InvariantString) As Boolean
         Get
-            Contract.Requires(fileName IsNot Nothing)
-            Dim h = FindFileSlot(fileName)
-            Return h IsNot Nothing AndAlso h.Exists
+            Dim h = FindFileSlot(archiveFilePath)
+            Return h.HasValue AndAlso h.Value.Exists
         End Get
     End Property
 End Class
 
 <DebuggerDisplay("{ToString}")>
-Public Class HashEntry
+Public Structure HashEntry
     Public ReadOnly FileKey As ULong
     Public ReadOnly Language As LanguageId
     Public ReadOnly BlockIndex As Hashtable.BlockIndex
@@ -123,13 +120,13 @@ Public Class HashEntry
     End Sub
     Public ReadOnly Property Exists As Boolean
         Get
-            Return blockIndex <> Hashtable.BlockIndex.NoFile AndAlso
-                   blockIndex <> Hashtable.BlockIndex.DeletedFile AndAlso
-                   language.EnumValueIsDefined
+            Return BlockIndex <> Hashtable.BlockIndex.NoFile AndAlso
+                   BlockIndex <> Hashtable.BlockIndex.DeletedFile AndAlso
+                   Language.EnumValueIsDefined
         End Get
     End Property
 
     Public Overrides Function ToString() As String
-        Return "Key={0}, Language={1}, Block={2}".Frmt(fileKey, language, blockIndex)
+        Return "Key={0}, Language={1}, Block={2}".Frmt(FileKey, Language, BlockIndex)
     End Function
-End Class
+End Structure

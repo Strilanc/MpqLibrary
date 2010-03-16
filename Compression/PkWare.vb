@@ -1,6 +1,4 @@
-﻿Imports MPQ.Library
-
-''''MPQPkWare.vb - explode function of PKWARE data compression library.
+﻿''''MPQPkWare.vb - explode function of PKWARE data compression library.
 ''''
 ''''Copyright (C) 2008 Craig Gidney <craig.gidney@gmail.com>
 ''''
@@ -37,101 +35,188 @@
 ''''======================================================
 
 Namespace Compression
-    Friend Class PkWareDecompressor
-        Implements IConverter(Of Byte, Byte)
-        Public Enum modes As Byte
+    Friend Class PkWareDecompressionStream
+        Inherits DisposableWithTask
+        Implements IReadableStream
+
+        Public Enum CompressionMode As Byte
             binary = 0
             ascii = 1
         End Enum
         Private Const BUFFER_SIZE As Integer = 4096
 
-        '''<summary>Travels down to the leaf of a coding tree, unbuffering bits for direction.</summary>
-        Private Function ReadTreeNodeFrom(ByVal c As PkWareCodeTree, ByVal readBuf As ByteSequenceBitBuffer) As Byte
+        Private ReadOnly _mode As CompressionMode
+        Private ReadOnly _subStream As IReadableStream
+        Private ReadOnly _rawBitBuffer As New BitBuffer()
+        Private ReadOnly _extraOffsetBitsCount As Byte
+        Private ReadOnly _ringBuffer(0 To BUFFER_SIZE - 1) As Byte
+
+        Private _finished As Boolean
+        Private _availableReadCount As Integer
+        Private _ringPosition As Integer
+
+        <ContractInvariantMethod()> Private Sub ObjectInvariant()
+            Contract.Invariant(_subStream IsNot Nothing)
+            Contract.Invariant(_ringBuffer IsNot Nothing)
+            Contract.Invariant(_rawBitBuffer IsNot Nothing)
+            Contract.Invariant(_availableReadCount >= 0)
+            Contract.Invariant(_ringPosition >= 0)
+            Contract.Invariant(_ringPosition < BUFFER_SIZE)
+            Contract.Invariant(_extraOffsetBitsCount > 0)
+            Contract.Invariant(_extraOffsetBitsCount <= 8)
+        End Sub
+
+        Public Sub New(ByVal subStream As IReadableStream,
+                       ByVal mode As CompressionMode,
+                       ByVal extraOffetBitsCount As Byte)
+            Contract.Requires(subStream IsNot Nothing)
+            Contract.Requires(extraOffetBitsCount > 0)
+            Contract.Requires(extraOffetBitsCount <= 8)
+            Me._subStream = subStream
+            Me._mode = mode
+            Me._extraOffsetBitsCount = extraOffetBitsCount
+        End Sub
+        Public Shared Function FromSubStream(ByVal subStream As IReadableStream) As PkWareDecompressionStream
+            Contract.Requires(subStream IsNot Nothing)
+            Contract.Ensures(Contract.Result(Of PkWareDecompressionStream)() IsNot Nothing)
+
+            Dim mode = CType(subStream.ReadByte(), CompressionMode)
+            Dim extraJumpBitCount = subStream.ReadByte()
+
+            If mode <> CompressionMode.binary AndAlso mode <> CompressionMode.ascii Then
+                Throw New IO.InvalidDataException("Invalid PkWare stream mode.", mode.MakeImpossibleValueException())
+            ElseIf extraJumpBitCount < 4 OrElse extraJumpBitCount > 6 Then
+                Throw New IO.InvalidDataException("Invalid PkWare stream jump bit count.")
+            End If
+
+            Return New PkWareDecompressionStream(subStream, mode, extraJumpBitCount)
+        End Function
+
+        Private Function TryBufferRawBits(ByVal bitCount As Integer) As Boolean
+            Contract.Requires(bitCount >= 0)
+            Contract.Ensures(Contract.Result(Of Boolean)() = (_rawBitBuffer.BitCount >= bitCount))
+            While _rawBitBuffer.BitCount < bitCount
+                Dim v = _subStream.TryReadByte()
+                If Not v.HasValue Then Return False
+                _rawBitBuffer.QueueByte(v.Value)
+            End While
+            Return True
+        End Function
+        Private Function ReadRawValue(ByVal bitCount As Integer) As Byte
+            Contract.Requires(bitCount >= 0)
+            Contract.Requires(bitCount <= 8)
+            If Not TryBufferRawBits(bitCount) Then Throw New IO.IOException("Not enough data.")
+            Return CByte(_rawBitBuffer.Take(bitCount).Bits)
+        End Function
+        Private Function ReadRawBit() As Boolean
+            Return ReadRawValue(1) <> 0
+        End Function
+        Private Function ReadRawByte() As Byte
+            Return ReadRawValue(8)
+        End Function
+
+        Private Function ReadTreeValue(ByVal c As PkWareCodeTree) As Byte
+            Contract.Requires(c IsNot Nothing)
             Dim n = c.root
+            Contract.Assume(n IsNot Nothing)
             While Not n.isLeaf
-                n = If(readBuf.TakeBit, n.leftChild, n.rightChild)
+                n = If(ReadRawBit(), n.leftChild, n.rightChild)
+                Contract.Assume(n IsNot Nothing)
             End While
             Return CByte(n.value)
         End Function
+        <ContractVerification(False)>
+        Private Function ReadRunLength() As UShort
+            Contract.Ensures(Contract.Result(Of UShort)() >= 2)
+            Contract.Ensures(Contract.Result(Of UShort)() < 520)
 
-        Private ReadOnly Property CyclePosition(ByVal position As Integer) As Integer
-            Get
-                Return (position + BUFFER_SIZE) Mod BUFFER_SIZE
-            End Get
-        End Property
+            Dim ru As UShort = ReadTreeValue(CopyLengthTree)
+            Dim rs = ru - 7
+            Contract.Assume(ru < 16)
 
-        Public Function Convert(ByVal seq As IEnumerator(Of Byte)) As IEnumerator(Of Byte) Implements IConverter(Of Byte, Byte).Convert
-            Dim seqBuf = New ByteSequenceBitBuffer(seq)
-            If Not seqBuf.TryBufferBits(16) Then Throw New IO.InvalidDataException("Invalid PkWare Stream (too short to even include header).")
+            If rs > 0 Then
+                Dim r1 = RunLengthTable(ru)
+                Contract.Assume(r1 >= 0 AndAlso r1 <= 262)
+                Dim r2 = ReadRawValue(rs)
+                Return r1 + r2 + 2US
+            Else
+                Return ru + 2US
+            End If
+        End Function
+        Private Function ReadRunOffset(ByVal runLength As UShort) As UShort
+            Contract.Ensures(Contract.Result(Of UShort)() > 0)
+            Contract.Ensures(Contract.Result(Of UShort)() <= 4096)
 
-            'Mode
-            Dim mode = CType(seqBuf.TakeByte(), PkWareDecompressor.modes)
-            Select Case mode
-                Case modes.binary, modes.ascii
-                Case Else
-                    Throw New IO.InvalidDataException("PkWare Stream data has unrecognized mode.")
-            End Select
+            Dim result As UShort = ReadTreeValue(JumpLengthTree)
+            Contract.Assume(result <= 63)
+            Dim lowBitCount = If(runLength = 2, 2, _extraOffsetBitsCount)
+            Dim lowBits = ReadRawValue(lowBitCount)
+            result <<= lowBitCount
+            result = result Or lowBits
+            result += 1US
+            Contract.Assume(result > 0 AndAlso result <= 4096)
+            Return result
+        End Function
 
-            'Dictionary size
-            Dim numExtraJumpBits = seqBuf.TakeByte()
-            If numExtraJumpBits < 4 OrElse numExtraJumpBits > 6 Then
-                Throw New IO.InvalidDataException("PkWare Stream data specified an invalid number of jump bits.")
+        Private Sub TryBufferData()
+            Contract.Requires(Not _finished)
+            Contract.Requires(_availableReadCount = 0)
+            Contract.Ensures(_finished OrElse _availableReadCount > 0)
+
+            'Check for end of stream
+            If Not TryBufferRawBits(1) Then
+                _finished = True
+                Return
             End If
 
-            'The memory buffer is used for look-back run encoding
-            Dim outBuf(0 To BUFFER_SIZE - 1) As Byte
-            Dim writePos = 0
-            Dim readPos = 0
+            Dim runEncoded = ReadRawBit()
+            If runEncoded Then
+                Dim runLength = ReadRunLength()
+                Dim runOffset = ReadRunOffset(runLength)
+                For i = 0 To runLength - 1
+                    Dim dst = (_ringPosition + i).ProperMod(BUFFER_SIZE)
+                    Dim src = (_ringPosition + i - runOffset).ProperMod(BUFFER_SIZE)
+                    _ringBuffer(dst) = _ringBuffer(dst)
+                Next i
+                _availableReadCount = runLength
+            Else
+                Dim val As Byte
+                Select Case _mode
+                    Case CompressionMode.binary : val = ReadRawByte()
+                    Case CompressionMode.ascii : val = ReadTreeValue(AsciiTree)
+                    Case Else : Throw _mode.MakeImpossibleValueException()
+                End Select
+                _ringBuffer(_ringPosition) = val
+                _availableReadCount = 1
+            End If
+        End Sub
 
-            Return New Enumerator(Of Byte)(
-                Function(controller)
-                    'Decompress
-                    Do
-                        'Cleanup previous operations
-                        If readPos < writePos Then
-                            Dim b = outBuf(readPos)
-                            readPos = CyclePosition(readPos + 1)
-                            Return b
-                        End If
+        Public Function TryReadByte() As Byte?
+            If _finished Then Return Nothing
+            If _availableReadCount = 0 Then TryBufferData()
+            If _finished Then Return Nothing
 
-                        'Check for end of stream
-                        If Not seqBuf.TryBufferBits(1) Then Return controller.Break()
+            Dim b = _ringBuffer(_ringPosition)
+            _ringPosition = (_ringPosition + 1).ProperMod(BUFFER_SIZE)
+            _availableReadCount -= 1
+            Return _ringBuffer(b)
+        End Function
 
-                        If Not seqBuf.TakeBit Then
-                            '[Single encoded byte]
-                            Select Case mode
-                                Case modes.binary 'raw byte
-                                    outBuf(writePos) = seqBuf.TakeByte()
-                                    writePos = CyclePosition(writePos + 1)
-                                Case modes.ascii 'byte compressed using a huffman tree based on ascii frequencies
-                                    outBuf(writePos) = ReadTreeNodeFrom(AsciiTree, seqBuf)
-                                    writePos = CyclePosition(writePos + 1)
-                                Case Else
-                                    Throw mode.MakeImpossibleValueException()
-                            End Select
-                        Else '[Look-back run encoding]
-                            'copy length
-                            Dim runLength = CUShort(ReadTreeNodeFrom(CopyLengthTree, seqBuf)) '[range 0 to 15]
-                            Dim r = runLength - 7
-                            If r > 0 Then runLength = CByte(seqBuf.Take(r).Bits) + CopyLengthTable(runLength)
-                            runLength += CUShort(2) '[range 2 to 518]
+        Public Function Read(ByVal maxCount As Integer) As IReadableList(Of Byte) Implements IReadableStream.Read
+            Dim result = New List(Of Byte)(capacity:=maxCount)
+            For i = 0 To maxCount - 1
+                Dim v = TryReadByte()
+                If Not v.HasValue Then Exit For
+                result.Add(v.Value)
+            Next i
+            Contract.Assume(result.Count <= maxCount)
+            Return result.AsReadableList
+        End Function
 
-                            'jump-back length
-                            Dim runOffset = CUShort(ReadTreeNodeFrom(JumpLengthTree, seqBuf)) '[range 0 to 63]
-                            Dim d = If(runLength = 2, 2, numExtraJumpBits)
-                            runOffset = (runOffset << d) Or CByte(seqBuf.Take(d).Bits)
-                            runOffset += CUShort(1) '[range 1 to 4096]
-
-                            'perform
-                            For i = 0 To runLength - 1
-                                writePos = CyclePosition(writePos + 1)
-                                outBuf(writePos) = outBuf(CyclePosition(writePos - runOffset))
-                            Next i
-                            writePos += runLength
-                        End If
-                    Loop
-                End Function
-            )
+        Protected Overrides Function PerformDispose(ByVal finalizing As Boolean) As System.Threading.Tasks.Task
+            If finalizing Then Return Nothing
+            _subStream.Dispose()
+            Return Nothing
         End Function
     End Class
 
@@ -209,7 +294,7 @@ Namespace Compression
         Public ReadOnly CopyLengthTree As New PkWareCodeTree(
                     {5, 3, 1, 6, 10, 2, 12, 20, 4, 24, 8, 48, 16, 32, 64, 0},
                     {3, 2, 3, 3, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 7, 7})
-        Public ReadOnly CopyLengthTable() As UShort = {0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 14, 22, 38, 70, 134, 262}
+        Public ReadOnly RunLengthTable() As UShort = {0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 14, 22, 38, 70, 134, 262}
         Public ReadOnly AsciiTree As New PkWareCodeTree(
                  {
                     &H490, &HFE0, &H7E0, &HBE0, &H3E0, &HDE0, &H5E0, &H9E0, &H1E0, &HB8, &H62, &HEE0, &H6E0, &H22, &HAE0, &H2E0,

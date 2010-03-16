@@ -19,8 +19,6 @@
 '' along with this program; if not, write to the Free Software
 '' Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-Imports MPQ.Library
-
 Public Enum LanguageId As UInteger
     Neutral = 0
 
@@ -58,10 +56,9 @@ Public Class Archive
     Private Const MagicHeaderValue As UInteger = &H1A51504D 'MPQ\x1A
 
     Private ReadOnly _archiveOffset As UInteger
-    Private ReadOnly _archiveSize As UInteger
     Private ReadOnly _hashtable As Hashtable 'Map from hashes filesnames to file table indexes
     Private ReadOnly _blockTable As BlockTable 'Stores the position, size, and other information about all files in the archive
-    Private ReadOnly _streamFactory As Func(Of IRandomReadableStream)
+    Private ReadOnly _streamFactory As Func(Of NonNull(Of IRandomReadableStream))
     Private ReadOnly _fileChunkSize As UInteger 'Size of the chunks files in the archive are divided into
 
     <ContractInvariantMethod()> Private Sub ObjectInvariant()
@@ -83,29 +80,28 @@ Public Class Archive
         End Get
     End Property
 
-    Public Sub New(ByVal streamFactory As Func(Of IRandomReadableStream),
+    Public Sub New(ByVal streamFactory As Func(Of NonNull(Of IRandomReadableStream)),
                    ByVal archiveOffset As UInt32,
-                   ByVal archiveSize As UInt32,
-                   ByVal hashTable As Hashtable,
+                   ByVal hashtable As Hashtable,
                    ByVal blockTable As BlockTable,
                    ByVal fileChunkSize As UInt32)
         Contract.Requires(streamFactory IsNot Nothing)
         Contract.Requires(blockTable IsNot Nothing)
-        Contract.Requires(hashTable IsNot Nothing)
+        Contract.Requires(hashtable IsNot Nothing)
         Me._streamFactory = streamFactory
         Me._archiveOffset = archiveOffset
-        Me._archiveSize = archiveSize
-        Me._hashtable = hashTable
+        Me._hashtable = hashtable
         Me._blockTable = blockTable
         Me._fileChunkSize = fileChunkSize
     End Sub
 
-    Public Shared Function FromStreamFactory(ByVal streamFactory As Func(Of IRandomReadableStream)) As Archive
+    Public Shared Function FromStreamFactory(ByVal streamFactory As Func(Of NonNull(Of IRandomReadableStream))) As Archive
         Contract.Requires(streamFactory IsNot Nothing)
         Contract.Ensures(Contract.Result(Of Archive)() IsNot Nothing)
 
-        Using stream = streamFactory()
+        Using stream = streamFactory().Value
             For archiveOffset = 0UI To CUInt(stream.Length - 128) Step 512UI
+                Contract.Assume(archiveOffset < stream.Length)
                 Dim archive = FromStreamTryOffset(streamFactory, stream, archiveOffset)
                 If archive IsNot Nothing Then
                     Return archive
@@ -115,11 +111,12 @@ Public Class Archive
 
         Throw New IO.InvalidDataException("MPQ archive header not found.")
     End Function
-    Private Shared Function FromStreamTryOffset(ByVal streamFactory As Func(Of IRandomReadableStream),
+    Private Shared Function FromStreamTryOffset(ByVal streamFactory As Func(Of NonNull(Of IRandomReadableStream)),
                                                 ByVal stream As IRandomReadableStream,
                                                 ByVal archiveOffset As UInt32) As Archive
         Contract.Requires(streamFactory IsNot Nothing)
         Contract.Requires(stream IsNot Nothing)
+        Contract.Requires(archiveOffset < stream.Length)
 
         'Find valid header
         stream.Position = archiveOffset
@@ -151,20 +148,20 @@ Public Class Archive
         Dim fileChunkSize = 512UI << fileChunkSizePower
 
         'Load tables
+        Contract.Assume(archiveOffset + blockTableOffset < stream.Length)
         Dim blockTable = MPQ.BlockTable.FromStream(stream, archiveOffset + blockTableOffset, blockTableSize)
+        Contract.Assume(archiveOffset + hashtableOffset < stream.Length)
         Dim hashtable = MPQ.Hashtable.FromStream(stream, archiveOffset + hashtableOffset, hashtableSize, CUInt(blockTable.Size))
 
         Return New Archive(streamFactory,
                            archiveOffset,
-                           archiveSize,
                            hashtable,
                            blockTable,
                            fileChunkSize)
     End Function
-    Public Shared Function FromFile(ByVal fileName As String) As Archive
-        Contract.Requires(fileName IsNot Nothing)
+    Public Shared Function FromFile(ByVal archiveFilePath As InvariantString) As Archive
         Contract.Ensures(Contract.Result(Of Archive)() IsNot Nothing)
-        Return FromStreamFactory(Function() New IO.FileStream(fileName, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read).AsRandomReadableStream)
+        Return FromStreamFactory(Function() New IO.FileStream(archiveFilePath, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read).AsRandomReadableStream.AsNonNull)
     End Function
 
     <Pure()>
@@ -175,20 +172,21 @@ Public Class Archive
         Dim block = BlockTable.TryGetBlock(blockIndex)
         If block Is Nothing Then Throw New InvalidOperationException("Invalid block index.")
         If (block.Properties And BlockProperties.Used) <> 0 Then Throw New InvalidOperationException("Block is empty.")
-        Return New FileReader(_streamFactory(), _archiveOffset, _fileChunkSize, block)
+        Return New FileReader(_streamFactory().Value, _archiveOffset, _fileChunkSize, block)
     End Function
     <Pure()>
-    Public Function OpenFileByName(ByVal fileName As String) As IRandomReadableStream
-        Contract.Requires(fileName IsNot Nothing)
+    Public Function OpenFileByName(ByVal archiveFilePath As InvariantString) As IRandomReadableStream
         Contract.Ensures(Contract.Result(Of IRandomReadableStream)() IsNot Nothing)
 
-        Dim blockIndex = Hashtable(fileName).BlockIndex
+        If Not _hashtable.Contains(archiveFilePath) Then Throw New InvalidOperationException("No archive file named '{0}'.".Frmt(archiveFilePath))
+        Dim blockIndex = _hashtable(archiveFilePath).BlockIndex
         Dim block = BlockTable.TryGetBlock(blockIndex)
         If block Is Nothing Then Throw New InvalidOperationException("Invalid block index.")
         If (block.Properties And BlockProperties.Used) = 0 Then Throw New InvalidOperationException("Block is empty.")
-        Return New FileReader(_streamFactory(), _archiveOffset, _fileChunkSize, block, fileName)
+        Return New FileReader(_streamFactory().Value, _archiveOffset, _fileChunkSize, block, archiveFilePath)
     End Function
 
+    <ContractVerification(False)>
     Public Sub WriteToStream(ByVal stream As IO.Stream)
         Contract.Requires(stream IsNot Nothing)
         Contract.Requires(stream.CanWrite)
@@ -216,7 +214,7 @@ Public Class Archive
 
         'Write containing file header
         Dim bf = New IO.BufferedStream(stream)
-        Using fileData = _streamFactory()
+        Using fileData = _streamFactory().Value
             For i = 0 To _archiveOffset - 1
                 bf.WriteByte(CByte(fileData.ReadByte()))
             Next i
@@ -248,7 +246,7 @@ Public Class Archive
 
         'Write block table
         bf.Position = archiveHeaderPosition + blockTableOffset
-        With New EncypherStream(bf.AsWritableStream, HashString("(block table)", CryptTableIndex.CypherKeyHash))
+        With New EncipherStream(bf.AsWritableStream, HashString("(block table)", CryptTableIndex.CipherKeyHash))
             For Each f In validBlocks
                 .Write(f.Offset)
                 .Write(f.Length)
@@ -260,7 +258,7 @@ Public Class Archive
 
         'Write hash table
         bf.Position = archiveHeaderPosition + hashtableOffset
-        With New EncypherStream(bf.AsWritableStream, HashString("(hash table)", CryptTableIndex.CypherKeyHash))
+        With New EncipherStream(bf.AsWritableStream, HashString("(hash table)", CryptTableIndex.CipherKeyHash))
             idMap(Hashtable.BlockIndex.NoFile) = Hashtable.BlockIndex.NoFile
             idMap(Hashtable.BlockIndex.DeletedFile) = Hashtable.BlockIndex.DeletedFile
             For Each h In Hashtable.Entries
