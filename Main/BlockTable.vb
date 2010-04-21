@@ -40,7 +40,7 @@ Public Class BlockTable
             blocks.Add(New Block(offset:=offset,
                                  length:=stream.ReadUInt32(),
                                  fileSize:=stream.ReadUInt32(),
-                                 properties:=CType(stream.ReadUInt32(), BlockProperties)))
+                                 properties:=DirectCast(stream.ReadUInt32(), BlockProperties)))
         Next i
 
         Return New BlockTable(blocks.ToReadableList)

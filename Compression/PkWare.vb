@@ -80,7 +80,7 @@ Namespace Compression
             Contract.Requires(subStream IsNot Nothing)
             Contract.Ensures(Contract.Result(Of PkWareDecompressionStream)() IsNot Nothing)
 
-            Dim mode = CType(subStream.ReadByte(), CompressionMode)
+            Dim mode = DirectCast(subStream.ReadByte(), CompressionMode)
             Dim extraJumpBitCount = subStream.ReadByte()
 
             If mode <> CompressionMode.binary AndAlso mode <> CompressionMode.ascii Then

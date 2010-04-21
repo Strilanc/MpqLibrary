@@ -15,7 +15,6 @@ Public Class Hashtable
         DeletedFile = &HFFFFFFFEL
     End Enum
 
-    '''<summary>Reads the hashtable from an MPQ archive</summary>
     Public Sub New(ByVal hashes As IEnumerable(Of HashEntry))
         Contract.Requires(hashes IsNot Nothing)
         Me._hashes = hashes.ToReadableList
@@ -33,8 +32,8 @@ Public Class Hashtable
         Dim stream = New DecipherStream(encryptedStream, HashString("(hash table)", CryptTableIndex.CipherKeyHash))
         Dim hashData = (From repeat In hashtableEntryCount.Range
                         Let fileKey = stream.ReadUInt64()
-                        Let language = CType(stream.ReadUInt32(), LanguageId)
-                        Let blockIndex = CType(stream.ReadUInt32(), Hashtable.BlockIndex)
+                        Let language = DirectCast(stream.ReadUInt32(), LanguageId)
+                        Let blockIndex = DirectCast(stream.ReadUInt32(), Hashtable.BlockIndex)
                         Let invalid = blockIndex >= blockTableEntryCount AndAlso
                                       blockIndex <> Hashtable.BlockIndex.DeletedFile AndAlso
                                       blockIndex <> Hashtable.BlockIndex.NoFile

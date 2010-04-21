@@ -171,7 +171,7 @@ Public Class Archive
 
         Dim block = BlockTable.TryGetBlock(blockIndex)
         If block Is Nothing Then Throw New InvalidOperationException("Invalid block index.")
-        If (block.Properties And BlockProperties.Used) <> 0 Then Throw New InvalidOperationException("Block is empty.")
+        If (block.Properties And BlockProperties.Used) = 0 Then Throw New InvalidOperationException("Block is empty.")
         Return New FileReader(_streamFactory().Value, _archiveOffset, _fileChunkSize, block)
     End Function
     <Pure()>

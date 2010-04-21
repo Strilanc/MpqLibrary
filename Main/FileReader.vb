@@ -188,7 +188,7 @@ Friend Class FileReader
             End If
         End If
         If compressed Then
-            Dim header = CType(_curChunkStream.ReadByte(), CompressionTypes)
+            Dim header = DirectCast(_curChunkStream.ReadByte(), CompressionTypes)
 
             'BZIP2
             If (header And CompressionTypes.BZip2) <> 0 Then
@@ -279,7 +279,8 @@ Friend Class FileReader
             _numBlockBytesLeft -= CUInt(numToRead)
 
             'Read
-            Dim readData = _curChunkStream.ReadExact(numToRead)
+            Dim readData = _curChunkStream.Read(numToRead)
+            If readData.Count = 0 Then Exit While
             If readData.Count = maxCount Then Return readData
             result.AddRange(readData)
         End While
