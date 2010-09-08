@@ -80,18 +80,15 @@ Namespace Compression
                 'process value
                 Dim channel = _nextChannel
                 _nextChannel = (_nextChannel + 1) Mod _numChannels
-                If (b And &H80) <> 0 Then 'special cases
-                    Select Case (b And &H7F)
+                If b.HasBitSet(7) Then 'special cases
+                    Dim c = b.LowMasked(7)
+                    Select Case c
                         Case 0 'small step adjustment, with repetition of last prediction
                             _stepIndex(channel) -= 1
                         Case 2 'dead value
                             Continue Do
                         Case Else 'large step adjustment
-                            If (b And &H7F) = 1 Then
-                                _stepIndex(channel) += 8
-                            Else
-                                _stepIndex(channel) -= 8
-                            End If
+                            _stepIndex(channel) += If(c = 1, 8, -8)
                             _stepIndex(channel) = _stepIndex(channel).Between(0, stepSizeTable.Length - 1)
                             _nextChannel = channel 'use this channel again in the next iteration
                             Continue Do
@@ -100,17 +97,13 @@ Namespace Compression
                     'deltas
                     Dim stepSize = stepSizeTable(_stepIndex(channel))
                     Dim deltaPrediction = stepSize >> _stepShift
-                    For i = 0 To 5 '[b is big endian]
-                        If (b >> i And 1) <> 0 Then deltaPrediction += stepSize
+                    For Each e In b.Bits.Take(6) '[b is big endian]
+                        If e Then deltaPrediction += stepSize
                         stepSize >>= 1
-                    Next i
+                    Next e
                     'update
-                    If (b And &H40) <> 0 Then 'sign bit
-                        _prediction(channel) -= deltaPrediction
-                    Else
-                        _prediction(channel) += deltaPrediction
-                    End If
-                    _stepIndex(channel) += stepIndexDeltaTable(b And &H1F)
+                    _prediction(channel) += deltaPrediction * If(b.HasBitSet(6), -1, 1)
+                    _stepIndex(channel) += stepIndexDeltaTable(b.LowMasked(5))
                 End If
 
                 'keep channel states from going out of range
