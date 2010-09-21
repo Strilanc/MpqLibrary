@@ -209,7 +209,6 @@ Namespace Compression
                 If Not v.HasValue Then Exit For
                 result.Add(v.Value)
             Next i
-            Contract.Assume(result.Count <= maxCount)
             Return result.AsReadableList
         End Function
 

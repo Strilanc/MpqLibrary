@@ -90,7 +90,6 @@ Namespace Compression
                 If Not v.HasValue Then Exit For
                 result.Add(v.Value)
             Next i
-            Contract.Assume(result.Count <= maxCount)
             Return result.AsReadableList
         End Function
 
@@ -174,7 +173,6 @@ Namespace Compression
             For i = 0 To nodes.Count - 1
                 If n.freq > nodes(i).Value.freq Then
                     nodes.Insert(i, n)
-                    Contract.Assume(nodes.Count > 0)
                     Return
                 End If
             Next i

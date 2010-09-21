@@ -8,49 +8,46 @@ Namespace Cryptography
         Private _k1 As ModInt32
         Private _k2 As ModInt32
 
-        Private _curPlainValue As UInt32
-        Private _usedBitCount As Byte
-        Private _mask As UInt32
+        Private _partialPlainValue As UInt32
+        Private _partialBitsCount As Byte
+        Private _partialXorMask As UInt32
 
         <ContractInvariantMethod()> Private Sub ObjectInvariant()
-            Contract.Invariant(_usedBitCount Mod 8 = 0)
-            Contract.Invariant(_usedBitCount < 32)
+            Contract.Invariant(_partialBitsCount Mod 8 = 0)
+            Contract.Invariant(_partialBitsCount < 32)
         End Sub
 
         Public Sub New(ByVal key As ModInt32)
             Me._k1 = key
-            Me._k2 = &HEEEEEEEE
-            ResetMask()
-        End Sub
-        Private Sub ResetMask()
-            _mask = (_k1 + _k2 + Table((_k1 And &HFF).SignedValue)).UnsignedValue
-            _usedBitCount = 0
-            _curPlainValue = 0
+            Me._k2 = &HEEEEEEEE + Table(_k1.SignedValue And &HFF)
+            Me._partialXorMask = (_k1 + _k2).UnsignedValue
         End Sub
 
         Public Function EncryptNext(ByVal plainValue As Byte) As Byte
-            Dim encryptedValue = plainValue Xor CByte(_mask And &HFFUI)
+            Dim encryptedValue = plainValue Xor CByte(_partialXorMask And &HFFUI)
             Advance(plainValue)
             Return encryptedValue
         End Function
         Public Function DecryptNext(ByVal encryptedValue As Byte) As Byte
-            Dim plainValue = encryptedValue Xor CByte(_mask And &HFFUI)
+            Dim plainValue = encryptedValue Xor CByte(_partialXorMask And &HFFUI)
             Advance(plainValue)
             Return plainValue
         End Function
 
         Private Sub Advance(ByVal plainByte As Byte)
-            _curPlainValue = _curPlainValue Or (CUInt(plainByte) << _usedBitCount)
-            _mask >>= 8
-            _usedBitCount += CByte(8)
+            _partialPlainValue = _partialPlainValue Or (CUInt(plainByte) << _partialBitsCount)
+            _partialXorMask >>= 8
+            _partialBitsCount += CByte(8)
 
-            If _usedBitCount = 32 Then
-                _k2 = _curPlainValue + (_k2 + Table((_k1 And &HFF).SignedValue)) * 33 + 3
-                _k1 = (_k1 >> 11) Or (((Not _k1) << 21) + &H11111111) '[vulnerability: causes k1 to lose entropy via bits being forced set]
-                ResetMask()
+            If _partialBitsCount = 32 Then
+                _k1 = ((_k1.ShiftRotateRight(11) Xor &HFFE00000) + &H11000000) Or &H111111 '[vulnerability: the OR loses entropy in _k1]
+                _k2 = _k2 * 33 + _partialPlainValue + 3 + Table(_k1.SignedValue And &HFF)
+                _partialXorMask = (_k1 + _k2).UnsignedValue
+                _partialBitsCount = 0
+                _partialPlainValue = 0
             End If
-            Contract.Assume(_usedBitCount < 32)
-            Contract.Assume(_usedBitCount Mod 8 = 0)
+            Contract.Assume(_partialBitsCount < 32)
+            Contract.Assume(_partialBitsCount Mod 8 = 0)
         End Sub
     End Class
 
